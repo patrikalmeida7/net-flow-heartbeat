@@ -1,0 +1,25 @@
+[Unit]
+Description=NOC MikroTik Collector Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=noc-agent
+WorkingDirectory=/opt/noc-agent
+ExecStart=/usr/bin/node /opt/noc-agent/src/index.js
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/noc-agent.log
+StandardError=append:/var/log/noc-agent.log
+Environment=NODE_ENV=production
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log
+
+[Install]
+WantedBy=multi-user.target

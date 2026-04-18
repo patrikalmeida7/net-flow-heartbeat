@@ -1,0 +1,17 @@
+{
+  "name": "noc-mikrotik-agent",
+  "version": "1.0.0",
+  "description": "Agente coletor MikroTik → Lovable Cloud (NOC ISP)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "node-routeros": "^1.6.8"
+  }
+}
