@@ -125,6 +125,75 @@ export type Database = {
         }
         Relationships: []
       }
+      device_interfaces: {
+        Row: {
+          admin_status: string | null
+          concentrador_id: string | null
+          created_at: string
+          id: string
+          if_alias: string | null
+          if_descr: string | null
+          if_index: number
+          if_name: string | null
+          if_speed_bps: number | null
+          last_in_octets: number | null
+          last_out_octets: number | null
+          last_sample_at: string | null
+          oper_status: string | null
+          rbs_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          admin_status?: string | null
+          concentrador_id?: string | null
+          created_at?: string
+          id?: string
+          if_alias?: string | null
+          if_descr?: string | null
+          if_index: number
+          if_name?: string | null
+          if_speed_bps?: number | null
+          last_in_octets?: number | null
+          last_out_octets?: number | null
+          last_sample_at?: string | null
+          oper_status?: string | null
+          rbs_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          admin_status?: string | null
+          concentrador_id?: string | null
+          created_at?: string
+          id?: string
+          if_alias?: string | null
+          if_descr?: string | null
+          if_index?: number
+          if_name?: string | null
+          if_speed_bps?: number | null
+          last_in_octets?: number | null
+          last_out_octets?: number | null
+          last_sample_at?: string | null
+          oper_status?: string | null
+          rbs_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_interfaces_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_interfaces_rbs_id_fkey"
+            columns: ["rbs_id"]
+            isOneToOne: false
+            referencedRelation: "rbs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       eventos: {
         Row: {
           concentrador_id: string | null
@@ -166,6 +235,58 @@ export type Database = {
           },
           {
             foreignKeyName: "eventos_rbs_id_fkey"
+            columns: ["rbs_id"]
+            isOneToOne: false
+            referencedRelation: "rbs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      metric_samples: {
+        Row: {
+          collected_at: string
+          concentrador_id: string | null
+          id: number
+          interface_id: string | null
+          kind: Database["public"]["Enums"]["metric_kind"]
+          rbs_id: string | null
+          value: number
+        }
+        Insert: {
+          collected_at?: string
+          concentrador_id?: string | null
+          id?: number
+          interface_id?: string | null
+          kind: Database["public"]["Enums"]["metric_kind"]
+          rbs_id?: string | null
+          value: number
+        }
+        Update: {
+          collected_at?: string
+          concentrador_id?: string | null
+          id?: number
+          interface_id?: string | null
+          kind?: Database["public"]["Enums"]["metric_kind"]
+          rbs_id?: string | null
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "metric_samples_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "metric_samples_interface_id_fkey"
+            columns: ["interface_id"]
+            isOneToOne: false
+            referencedRelation: "device_interfaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "metric_samples_rbs_id_fkey"
             columns: ["rbs_id"]
             isOneToOne: false
             referencedRelation: "rbs"
@@ -304,6 +425,87 @@ export type Database = {
         }
         Relationships: []
       }
+      snmp_credentials: {
+        Row: {
+          auth_password: string | null
+          auth_proto: Database["public"]["Enums"]["snmp_auth_proto"]
+          community: string | null
+          concentrador_id: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          last_error: string | null
+          last_poll_at: string | null
+          poll_interval_seconds: number
+          port: number
+          priv_password: string | null
+          priv_proto: Database["public"]["Enums"]["snmp_priv_proto"]
+          rbs_id: string | null
+          retries: number
+          timeout_ms: number
+          updated_at: string
+          username: string | null
+          version: Database["public"]["Enums"]["snmp_version"]
+        }
+        Insert: {
+          auth_password?: string | null
+          auth_proto?: Database["public"]["Enums"]["snmp_auth_proto"]
+          community?: string | null
+          concentrador_id?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_error?: string | null
+          last_poll_at?: string | null
+          poll_interval_seconds?: number
+          port?: number
+          priv_password?: string | null
+          priv_proto?: Database["public"]["Enums"]["snmp_priv_proto"]
+          rbs_id?: string | null
+          retries?: number
+          timeout_ms?: number
+          updated_at?: string
+          username?: string | null
+          version?: Database["public"]["Enums"]["snmp_version"]
+        }
+        Update: {
+          auth_password?: string | null
+          auth_proto?: Database["public"]["Enums"]["snmp_auth_proto"]
+          community?: string | null
+          concentrador_id?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_error?: string | null
+          last_poll_at?: string | null
+          poll_interval_seconds?: number
+          port?: number
+          priv_password?: string | null
+          priv_proto?: Database["public"]["Enums"]["snmp_priv_proto"]
+          rbs_id?: string | null
+          retries?: number
+          timeout_ms?: number
+          updated_at?: string
+          username?: string | null
+          version?: Database["public"]["Enums"]["snmp_version"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "snmp_credentials_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "snmp_credentials_rbs_id_fkey"
+            columns: ["rbs_id"]
+            isOneToOne: false
+            referencedRelation: "rbs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -337,6 +539,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      purge_old_metric_samples: { Args: never; Returns: undefined }
     }
     Enums: {
       alert_severity: "info" | "warning" | "critical"
@@ -351,6 +554,21 @@ export type Database = {
         | "rbs_down"
         | "rbs_up"
         | "flapping"
+      metric_kind:
+        | "cpu_load"
+        | "memory_used_pct"
+        | "uptime_seconds"
+        | "temperature_c"
+        | "if_in_bps"
+        | "if_out_bps"
+        | "if_in_errors"
+        | "if_out_errors"
+        | "if_oper_status"
+        | "ping_ms"
+        | "ping_loss_pct"
+      snmp_auth_proto: "none" | "MD5" | "SHA"
+      snmp_priv_proto: "none" | "DES" | "AES"
+      snmp_version: "v2c" | "v3"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -491,6 +709,22 @@ export const Constants = {
         "rbs_up",
         "flapping",
       ],
+      metric_kind: [
+        "cpu_load",
+        "memory_used_pct",
+        "uptime_seconds",
+        "temperature_c",
+        "if_in_bps",
+        "if_out_bps",
+        "if_in_errors",
+        "if_out_errors",
+        "if_oper_status",
+        "ping_ms",
+        "ping_loss_pct",
+      ],
+      snmp_auth_proto: ["none", "MD5", "SHA"],
+      snmp_priv_proto: ["none", "DES", "AES"],
+      snmp_version: ["v2c", "v3"],
     },
   },
 } as const

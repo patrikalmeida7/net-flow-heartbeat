@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, Gauge, History, LogOut, Radio, Server, Settings, Users } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Gauge, History, LogOut, Radio, Server, Settings, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ const nav = [
   { to: "/concentradores", label: "Concentradores", icon: Server },
   { to: "/rbs", label: "RBS / Torres", icon: Radio },
   { to: "/pppoe", label: "Usuários PPPoE", icon: Users },
+  { to: "/metricas", label: "Métricas SNMP", icon: BarChart3 },
   { to: "/alertas", label: "Alertas", icon: AlertTriangle },
   { to: "/eventos", label: "Histórico", icon: History },
 ];

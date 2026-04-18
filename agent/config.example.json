@@ -1,7 +1,9 @@
 {
   "ingest_url": "https://rzubqfexhptentnkjcaq.supabase.co/functions/v1/agent-ingest",
+  "metrics_ingest_url": "https://rzubqfexhptentnkjcaq.supabase.co/functions/v1/metrics-ingest",
   "ingest_token": "COLE_AQUI_O_VALOR_DO_AGENT_INGEST_TOKEN",
   "poll_interval_seconds": 30,
+  "snmp_poll_interval_seconds": 30,
   "request_timeout_ms": 10000,
   "concentradores": [
     {
@@ -9,14 +11,43 @@
       "host": "10.0.0.1",
       "user": "api-readonly",
       "password": "TROQUE_ESTA_SENHA",
-      "port": 8728
+      "port": 8728,
+      "snmp": {
+        "enabled": true,
+        "version": "v2c",
+        "port": 161,
+        "community": "public",
+        "timeout_ms": 3000,
+        "retries": 2
+      }
     },
     {
       "nome": "BRAS-02",
       "host": "10.0.0.2",
       "user": "api-readonly",
       "password": "TROQUE_ESTA_SENHA",
-      "port": 8728
+      "port": 8728,
+      "snmp": {
+        "enabled": true,
+        "version": "v3",
+        "port": 161,
+        "username": "snmpmonitor",
+        "auth_proto": "SHA",
+        "auth_password": "TROQUE_AUTH",
+        "priv_proto": "AES",
+        "priv_password": "TROQUE_PRIV"
+      }
+    }
+  ],
+  "rbs": [
+    {
+      "nome": "TORRE-CENTRO",
+      "host": "10.0.10.1",
+      "snmp": {
+        "enabled": true,
+        "version": "v2c",
+        "community": "public"
+      }
     }
   ]
 }
