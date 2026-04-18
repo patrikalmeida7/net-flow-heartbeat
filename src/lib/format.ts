@@ -20,6 +20,18 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`;
 }
 
+export function formatBps(bps: number | null | undefined): string {
+  if (!bps || bps <= 0) return "0 bps";
+  const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"];
+  let i = 0;
+  let val = bps;
+  while (val >= 1000 && i < units.length - 1) {
+    val /= 1000;
+    i++;
+  }
+  return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`;
+}
+
 export function timeAgo(date: string | Date | null | undefined): string {
   if (!date) return "—";
   const d = typeof date === "string" ? new Date(date) : date;
