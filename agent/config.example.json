@@ -1,0 +1,22 @@
+{
+  "ingest_url": "https://rzubqfexhptentnkjcaq.supabase.co/functions/v1/agent-ingest",
+  "ingest_token": "COLE_AQUI_O_VALOR_DO_AGENT_INGEST_TOKEN",
+  "poll_interval_seconds": 30,
+  "request_timeout_ms": 10000,
+  "concentradores": [
+    {
+      "nome": "BRAS-01",
+      "host": "10.0.0.1",
+      "user": "api-readonly",
+      "password": "TROQUE_ESTA_SENHA",
+      "port": 8728
+    },
+    {
+      "nome": "BRAS-02",
+      "host": "10.0.0.2",
+      "user": "api-readonly",
+      "password": "TROQUE_ESTA_SENHA",
+      "port": 8728
+    }
+  ]
+}
