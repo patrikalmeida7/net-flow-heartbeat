@@ -2,95 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* ============================================
+   NOC Design System — Provedor de Internet
+   Dark theme estilo monitoramento (sala de operação).
+   Todas as cores em HSL.
+   ============================================ */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Base — dark NOC */
+    --background: 222 30% 7%;
+    --foreground: 210 30% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 222 28% 10%;
+    --card-foreground: 210 30% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 222 28% 10%;
+    --popover-foreground: 210 30% 96%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Brand — ciano elétrico (NOC / telecom) */
+    --primary: 190 95% 55%;
+    --primary-foreground: 222 40% 8%;
+    --primary-glow: 190 100% 65%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 222 22% 16%;
+    --secondary-foreground: 210 30% 96%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 222 22% 14%;
+    --muted-foreground: 215 18% 65%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 222 25% 18%;
+    --accent-foreground: 210 30% 96%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 222 22% 18%;
+    --input: 222 22% 16%;
+    --ring: 190 95% 55%;
 
-    --radius: 0.5rem;
+    --radius: 0.625rem;
 
-    --sidebar-background: 0 0% 98%;
+    /* Status semânticos NOC */
+    --status-online: 142 72% 45%;
+    --status-online-fg: 142 80% 92%;
+    --status-warning: 38 95% 55%;
+    --status-warning-fg: 38 100% 12%;
+    --status-offline: 0 84% 60%;
+    --status-offline-fg: 0 0% 100%;
+    --status-unknown: 220 12% 50%;
+    --status-unknown-fg: 0 0% 100%;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    /* Severidade de alertas */
+    --severity-info: 200 90% 55%;
+    --severity-warning: 38 95% 55%;
+    --severity-critical: 0 84% 60%;
 
-    --sidebar-primary: 240 5.9% 10%;
+    /* Gradientes */
+    --gradient-primary: linear-gradient(135deg, hsl(190 95% 55%), hsl(210 100% 60%));
+    --gradient-card: linear-gradient(180deg, hsl(222 28% 11%), hsl(222 28% 9%));
+    --gradient-online: linear-gradient(135deg, hsl(142 72% 45% / 0.18), hsl(142 72% 45% / 0));
+    --gradient-warning: linear-gradient(135deg, hsl(38 95% 55% / 0.18), hsl(38 95% 55% / 0));
+    --gradient-offline: linear-gradient(135deg, hsl(0 84% 60% / 0.22), hsl(0 84% 60% / 0));
+    --gradient-noc: radial-gradient(ellipse at top, hsl(222 35% 12%), hsl(222 30% 6%));
 
-    --sidebar-primary-foreground: 0 0% 98%;
+    /* Sombras / glows */
+    --shadow-card: 0 1px 0 hsl(222 30% 100% / 0.04) inset, 0 8px 24px -12px hsl(222 80% 2% / 0.6);
+    --glow-online: 0 0 20px hsl(142 72% 45% / 0.45);
+    --glow-warning: 0 0 20px hsl(38 95% 55% / 0.5);
+    --glow-offline: 0 0 22px hsl(0 84% 60% / 0.55);
+    --glow-primary: 0 0 24px hsl(190 95% 55% / 0.45);
 
-    --sidebar-accent: 240 4.8% 95.9%;
+    /* Transições */
+    --transition-base: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
 
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Sidebar */
+    --sidebar-background: 222 32% 6%;
+    --sidebar-foreground: 215 20% 75%;
+    --sidebar-primary: 190 95% 55%;
+    --sidebar-primary-foreground: 222 40% 8%;
+    --sidebar-accent: 222 25% 13%;
+    --sidebar-accent-foreground: 210 30% 96%;
+    --sidebar-border: 222 22% 14%;
+    --sidebar-ring: 190 95% 55%;
   }
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+  /* Forçamos dark — sistema NOC sempre escuro */
+  .light {
+    color-scheme: dark;
   }
 }
 
@@ -98,8 +97,44 @@ All colors MUST be HSL.
   * {
     @apply border-border;
   }
-
+  html {
+    color-scheme: dark;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image: var(--gradient-noc);
+    background-attachment: fixed;
   }
 }
+
+@layer utilities {
+  .glow-online { box-shadow: var(--glow-online); }
+  .glow-warning { box-shadow: var(--glow-warning); }
+  .glow-offline { box-shadow: var(--glow-offline); }
+  .glow-primary { box-shadow: var(--glow-primary); }
+  .bg-gradient-primary { background-image: var(--gradient-primary); }
+  .bg-gradient-card { background-image: var(--gradient-card); }
+  .bg-gradient-noc { background-image: var(--gradient-noc); }
+
+  .pulse-dot::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: currentColor;
+    opacity: 0.6;
+    animation: pulse-ring 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  80%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes blink-critical {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.blink-critical { animation: blink-critical 1.4s ease-in-out infinite; }
