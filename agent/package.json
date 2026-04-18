@@ -1,17 +1,19 @@
 {
   "name": "noc-mikrotik-agent",
-  "version": "1.0.0",
-  "description": "Agente coletor MikroTik → Lovable Cloud (NOC ISP)",
+  "version": "1.1.0",
+  "description": "Agente coletor MikroTik (RouterOS API + SNMP) → Lovable Cloud",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "snmp": "node src/snmp.js",
     "dev": "node --watch src/index.js"
   },
   "engines": {
     "node": ">=18.17"
   },
   "dependencies": {
+    "net-snmp": "^3.20.0",
     "node-routeros": "^1.6.8"
   }
 }
