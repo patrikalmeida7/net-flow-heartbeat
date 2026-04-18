@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, Gauge, History, LogOut, Radio, Server, Users } from "lucide-react";
+import { Activity, AlertTriangle, Gauge, History, LogOut, Radio, Server, Settings, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,10 @@ const nav = [
   { to: "/eventos", label: "Histórico", icon: History },
 ];
 
+const adminNav = [
+  { to: "/admin", label: "Administração", icon: Settings },
+];
+
 function LiveClock() {
   const now = new Date();
   return (
@@ -23,13 +27,15 @@ function LiveClock() {
 }
 
 export default function AppLayout() {
-  const { user, signOut, roles } = useAuth();
+  const { user, signOut, roles, hasRole } = useAuth();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/auth");
   };
+
+  const items = hasRole("admin") ? [...nav, ...adminNav] : nav;
 
   return (
     <div className="flex min-h-screen w-full">
@@ -46,11 +52,11 @@ export default function AppLayout() {
         </div>
 
         <nav className="flex-1 space-y-1 p-3">
-          {nav.map((item) => (
+          {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.end}
+              end={(item as { end?: boolean }).end}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
