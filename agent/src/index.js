@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RouterOSAPI } from "node-routeros";
+import { collectSnmp } from "./snmp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -24,10 +25,13 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
 const {
   ingest_url,
+  metrics_ingest_url,
   ingest_token,
   poll_interval_seconds = 30,
+  snmp_poll_interval_seconds = 30,
   request_timeout_ms = 10000,
   concentradores = [],
+  rbs = [],
 } = config;
 
 if (!ingest_url || !ingest_token) {
@@ -118,11 +122,11 @@ function parseRouterOSUptime(str) {
 }
 
 // ---------- Envio para Lovable Cloud ----------
-async function send(payload) {
+async function postJson(url, payload) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), request_timeout_ms);
   try {
-    const res = await fetch(ingest_url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -137,6 +141,10 @@ async function send(payload) {
   } finally {
     clearTimeout(t);
   }
+}
+
+async function send(payload) {
+  return postJson(ingest_url, payload);
 }
 
 // ---------- Envio de status offline (quando coleta falha) ----------
