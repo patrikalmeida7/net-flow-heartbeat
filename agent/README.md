@@ -15,15 +15,25 @@ Agente coletor que conecta nos seus MikroTiks via **API RouterOS** e envia métr
 - Usuário MikroTik com permissão de **leitura** (`group=read` é suficiente)
 - Token de ingestão fornecido pelo Lovable Cloud (secret `AGENT_INGEST_TOKEN`)
 
-## 1. Criar usuário read-only no MikroTik
+## 1. Habilitar API + SNMP no MikroTik
 
 ```routeros
+# Usuário read-only para API
 /user group add name=api-ro policy=read,api,!ftp,!reboot,!write,!policy,!test,!password,!sniff,!sensitive,!romon
 /user add name=api-readonly group=api-ro password="SENHA-FORTE-AQUI"
 /ip service set api address=IP_DO_AGENTE/32 disabled=no
+
+# SNMP v2c (community)
+/snmp set enabled=yes contact="noc@isp.com" location="POP-Central"
+/snmp community add name=public addresses=IP_DO_AGENTE/32 read-access=yes
+
+# SNMP v3 (recomendado em produção — auth+priv)
+/snmp community remove [find name=public]
+/snmp v3 user add name=snmpmonitor authentication-protocol=sha auth-password=AUTH_FORTE \
+  encryption-protocol=aes encryption-password=PRIV_FORTE
 ```
 
-> Restrinja a porta `8728` por firewall ao IP do servidor onde o agente roda.
+> Restrinja portas `8728` e `161/UDP` por firewall ao IP do agente.
 
 ## 2. Instalar o agente
 
@@ -86,17 +96,40 @@ sudo tail -f /var/log/noc-agent.log
 
 ## O que o agente coleta
 
-Por concentrador, a cada ciclo:
-
+**RouterOS API (a cada `poll_interval_seconds`):**
 - `/system/resource` → CPU, memória, uptime, modelo, versão RouterOS
 - `/system/identity` → nome do equipamento
-- `/ppp/active` → todas as sessões PPPoE ativas (username, IP, interface, uptime)
+- `/ppp/active` → todas as sessões PPPoE ativas
 
-A Edge Function:
+**SNMP (a cada `snmp_poll_interval_seconds`):**
+- `sysUpTime`, `hrProcessorLoad`, `hrStorage` (RAM)
+- `ifTable`/`ifXTable` por interface: nome, descrição, alias, velocidade, status,
+  contadores 64-bit `ifHCInOctets`/`ifHCOutOctets`, erros
+
+A Edge Function `metrics-ingest`:
+1. Resolve concentrador/RBS pelo `host`
+2. Faz upsert das interfaces descobertas
+3. **Calcula bps via delta** entre amostras consecutivas de octets
+4. Insere amostras em `metric_samples` (retenção 7 dias)
+5. Atualiza status do equipamento (online/offline) e CPU/mem
+
+A Edge Function `agent-ingest`:
 1. Faz **upsert** do concentrador (chave: `host`)
-2. Reconcilia sessões (insere novas, marca desconectadas como `online=false`)
+2. Reconcilia sessões PPPoE (insere novas, marca desconectadas)
 3. Gera **eventos** (`connect`, `disconnect`, `device_down`, `device_up`)
 4. Cria **alertas críticos** automaticamente quando um concentrador cai
+
+## Troubleshooting
+
+| Sintoma | Causa provável |
+|--------|---------------|
+| `HTTP 401: Unauthorized` | `ingest_token` errado em `config.json` |
+| `cannot log in` | Usuário/senha do MikroTik incorretos |
+| `connect ETIMEDOUT` | Firewall bloqueando porta 8728 ou IP errado |
+| `connect ECONNREFUSED` | Serviço `api` desativado no RouterOS |
+| `SNMP ✗ ... RequestTimedOutError` | SNMP desabilitado, community errada ou firewall UDP/161 |
+| `SNMP ✗ ... AuthenticationError` | Credenciais SNMPv3 (auth/priv) erradas |
+| Concentrador some do dashboard | Verifique `sudo journalctl -u noc-agent -n 100` |
 
 ## Troubleshooting
 
