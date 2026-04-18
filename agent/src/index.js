@@ -166,8 +166,8 @@ async function sendOfflineStatus(mk, errMsg) {
   }
 }
 
-// ---------- Loop principal ----------
-async function tick() {
+// ---------- Loop RouterOS API (sessões PPPoE) ----------
+async function tickRouterOs() {
   await Promise.all(
     concentradores.map(async (mk) => {
       const label = mk.nome || mk.host;
@@ -186,11 +186,52 @@ async function tick() {
   );
 }
 
-log("INFO", `🚀 Agente iniciado. ${concentradores.length} concentrador(es). Intervalo: ${poll_interval_seconds}s`);
-log("INFO", `→ Ingest URL: ${ingest_url}`);
+// ---------- Loop SNMP (concentradores + RBS) ----------
+async function tickSnmp() {
+  if (!metrics_ingest_url) return;
+  const targets = [
+    ...concentradores
+      .filter((c) => c.snmp?.enabled)
+      .map((c) => ({ kind: "concentrador", host: c.host, nome: c.nome, snmp: c.snmp })),
+    ...rbs
+      .filter((r) => r.snmp?.enabled)
+      .map((r) => ({ kind: "rbs", host: r.host, nome: r.nome, snmp: r.snmp })),
+  ];
+  if (!targets.length) return;
 
-await tick();
-setInterval(tick, poll_interval_seconds * 1000);
+  const devices = await Promise.all(
+    targets.map(async (t) => {
+      const base = t.kind === "concentrador" ? { concentrador_host: t.host } : { rbs_host: t.host };
+      try {
+        const data = await collectSnmp(t.host, t.snmp);
+        return { ...base, ...data };
+      } catch (err) {
+        log("ERROR", `SNMP ✗ ${t.nome || t.host}: ${err.message}`);
+        return { ...base, snmp_error: err.message, interfaces: [] };
+      }
+    }),
+  );
+
+  try {
+    const res = await postJson(metrics_ingest_url, {
+      collected_at: new Date().toISOString(),
+      devices,
+    });
+    log("INFO", `SNMP ✓ devices=${devices.length} samples=${res.samples_inserted} ifaces=${res.interfaces_upserted}`);
+  } catch (err) {
+    log("ERROR", "SNMP envio falhou:", err.message);
+  }
+}
+
+log("INFO", `🚀 Agente iniciado. ${concentradores.length} concentrador(es), ${rbs.length} RBS.`);
+log("INFO", `→ RouterOS API a cada ${poll_interval_seconds}s | SNMP a cada ${snmp_poll_interval_seconds}s`);
+log("INFO", `→ Ingest URL: ${ingest_url}`);
+if (metrics_ingest_url) log("INFO", `→ Metrics URL: ${metrics_ingest_url}`);
+
+await tickRouterOs();
+await tickSnmp();
+setInterval(tickRouterOs, poll_interval_seconds * 1000);
+setInterval(tickSnmp, snmp_poll_interval_seconds * 1000);
 
 // Graceful shutdown
 for (const sig of ["SIGINT", "SIGTERM"]) {
@@ -199,3 +240,4 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     process.exit(0);
   });
 }
+
