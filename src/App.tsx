@@ -14,6 +14,7 @@ import RBS from "./pages/RBS";
 import PPPoE from "./pages/PPPoE";
 import Alertas from "./pages/Alertas";
 import Eventos from "./pages/Eventos";
+import Metricas from "./pages/Metricas";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound.tsx";
 
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="/pppoe" element={<PPPoE />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/eventos" element={<Eventos />} />
+              <Route path="/metricas" element={<Metricas />} />
               <Route
                 path="/admin"
                 element={
