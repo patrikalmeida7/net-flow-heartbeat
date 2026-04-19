@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -37,8 +38,10 @@ export default function RBS() {
           </TableHeader>
           <TableBody>
             {(data ?? []).map((r) => (
-              <TableRow key={r.id}>
-                <TableCell className="font-medium">{r.nome}</TableCell>
+              <TableRow key={r.id} className="cursor-pointer hover:bg-muted/40">
+                <TableCell className="font-medium">
+                  <Link to={`/rbs/${r.id}`} className="hover:underline">{r.nome}</Link>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{r.host ?? "—"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{r.endereco ?? "—"}</TableCell>
                 <TableCell className="text-right font-mono">{r.ping_ms != null ? `${r.ping_ms}ms` : "—"}</TableCell>

@@ -125,6 +125,75 @@ export type Database = {
         }
         Relationships: []
       }
+      device_credentials: {
+        Row: {
+          concentrador_id: string | null
+          created_at: string
+          enabled: boolean
+          host: string
+          id: string
+          last_error: string | null
+          last_poll_at: string | null
+          observacoes: string | null
+          password_encrypted: string
+          password_nonce: string
+          port: number
+          protocol: Database["public"]["Enums"]["remote_protocol"]
+          rbs_id: string | null
+          updated_at: string
+          username: string
+        }
+        Insert: {
+          concentrador_id?: string | null
+          created_at?: string
+          enabled?: boolean
+          host: string
+          id?: string
+          last_error?: string | null
+          last_poll_at?: string | null
+          observacoes?: string | null
+          password_encrypted: string
+          password_nonce: string
+          port?: number
+          protocol?: Database["public"]["Enums"]["remote_protocol"]
+          rbs_id?: string | null
+          updated_at?: string
+          username: string
+        }
+        Update: {
+          concentrador_id?: string | null
+          created_at?: string
+          enabled?: boolean
+          host?: string
+          id?: string
+          last_error?: string | null
+          last_poll_at?: string | null
+          observacoes?: string | null
+          password_encrypted?: string
+          password_nonce?: string
+          port?: number
+          protocol?: Database["public"]["Enums"]["remote_protocol"]
+          rbs_id?: string | null
+          updated_at?: string
+          username?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_credentials_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_credentials_rbs_id_fkey"
+            columns: ["rbs_id"]
+            isOneToOne: false
+            referencedRelation: "rbs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_interfaces: {
         Row: {
           admin_status: string | null
@@ -187,6 +256,64 @@ export type Database = {
           },
           {
             foreignKeyName: "device_interfaces_rbs_id_fkey"
+            columns: ["rbs_id"]
+            isOneToOne: false
+            referencedRelation: "rbs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      device_ssh_polls: {
+        Row: {
+          collected_at: string
+          concentrador_id: string | null
+          credential_id: string
+          duration_ms: number | null
+          error: string | null
+          id: string
+          rbs_id: string | null
+          results: Json
+          success: boolean
+        }
+        Insert: {
+          collected_at?: string
+          concentrador_id?: string | null
+          credential_id: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          rbs_id?: string | null
+          results?: Json
+          success: boolean
+        }
+        Update: {
+          collected_at?: string
+          concentrador_id?: string | null
+          credential_id?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          rbs_id?: string | null
+          results?: Json
+          success?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_ssh_polls_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_ssh_polls_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "device_credentials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_ssh_polls_rbs_id_fkey"
             columns: ["rbs_id"]
             isOneToOne: false
             referencedRelation: "rbs"
@@ -532,6 +659,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_device_credential_password: {
+        Args: { _credential_id: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -540,6 +671,10 @@ export type Database = {
         Returns: boolean
       }
       purge_old_metric_samples: { Args: never; Returns: undefined }
+      set_device_credential_password: {
+        Args: { _credential_id: string; _password: string }
+        Returns: undefined
+      }
     }
     Enums: {
       alert_severity: "info" | "warning" | "critical"
@@ -566,6 +701,7 @@ export type Database = {
         | "if_oper_status"
         | "ping_ms"
         | "ping_loss_pct"
+      remote_protocol: "ssh" | "telnet"
       snmp_auth_proto: "none" | "MD5" | "SHA"
       snmp_priv_proto: "none" | "DES" | "AES"
       snmp_version: "v2c" | "v3"
@@ -722,6 +858,7 @@ export const Constants = {
         "ping_ms",
         "ping_loss_pct",
       ],
+      remote_protocol: ["ssh", "telnet"],
       snmp_auth_proto: ["none", "MD5", "SHA"],
       snmp_priv_proto: ["none", "DES", "AES"],
       snmp_version: ["v2c", "v3"],

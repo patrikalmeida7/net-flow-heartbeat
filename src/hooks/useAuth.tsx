@@ -11,6 +11,7 @@ interface AuthContextValue {
   loading: boolean;
   signOut: () => Promise<void>;
   hasRole: (role: AppRole) => boolean;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -55,9 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const hasRole = (role: AppRole) => roles.includes(role);
+  const isAdmin = roles.includes("admin");
 
   return (
-    <AuthContext.Provider value={{ user, session, roles, loading, signOut, hasRole }}>
+    <AuthContext.Provider value={{ user, session, roles, loading, signOut, hasRole, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );
