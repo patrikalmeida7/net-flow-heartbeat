@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Card } from "@/components/ui/card";
 import { useRealtimeInvalidate } from "@/hooks/useRealtimeInvalidate";
 import { timeAgo } from "@/lib/format";
+import { DashboardVpnCard } from "@/components/DashboardVpnCard";
 
 const KEY_DASH = ["dashboard"] as const;
 
@@ -166,6 +167,9 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* VPNs + status devices */}
+      <DashboardVpnCard />
 
       {/* Status devices */}
       <div className="grid gap-4 lg:grid-cols-2">

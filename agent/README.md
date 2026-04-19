@@ -147,3 +147,54 @@ A Edge Function `agent-ingest`:
 - Use SSL (porta 8729) em ambientes sensíveis: defina `"port": 8729` no config
 - Faça rotação periódica do `AGENT_INGEST_TOKEN`
 - O `config.json` contém senhas — mantenha em modo `600`
+
+---
+
+## VPN (WireGuard + OpenVPN)
+
+O agente também pode manter túneis VPN ativos para alcançar concentradores em redes privadas.
+
+### Pré-requisitos
+
+```bash
+sudo apt install -y wireguard-tools openvpn iputils-ping
+```
+
+O agente precisa rodar **como root** (ou com `CAP_NET_ADMIN`) para gerenciar interfaces VPN.
+
+### Configuração
+
+1. No app: **Administração → Agentes** → criar agente → copiar token (só aparece uma vez)
+2. Definir variáveis de ambiente no systemd unit:
+
+   ```ini
+   [Service]
+   Environment="VPN_AGENT_TOKEN=<token>"
+   Environment="VPN_SYNC_URL=https://<projeto>.supabase.co/functions/v1/vpn-agent-sync"
+   ```
+
+3. Em **Administração → VPN**: cadastrar túneis (WG ou OVPN), vincular ao agente, marcar `desired_state=up`
+4. Importar `vpn.js` no `index.js` do agente:
+
+   ```js
+   import { startVpnLoop } from "./vpn.js";
+   if (process.env.VPN_AGENT_TOKEN && process.env.VPN_SYNC_URL) {
+     startVpnLoop({ syncUrl: process.env.VPN_SYNC_URL, token: process.env.VPN_AGENT_TOKEN });
+   }
+   ```
+
+### Como funciona
+
+- Agente faz POST em `vpn-agent-sync` a cada 15s
+- Recebe `{ tunnels: [...] }` com chaves descriptografadas (apenas em memória)
+- WireGuard: escreve `/etc/wireguard/lov-<id8>.conf` e roda `wg-quick up`
+- OpenVPN: escreve `/etc/openvpn/client/lov-<id8>.conf` e `systemctl restart openvpn-client@`
+- Mede latência via `ping` no primeiro `allowed_ip` (WG) e reporta status
+- Túneis com `desired_state=down` são derrubados e arquivos removidos
+
+### Segurança da VPN
+
+- Chaves privadas ficam **criptografadas com pgsodium** no banco
+- Token do agente é guardado como **sha256 hash** — não há recuperação
+- Edge function só descriptografa quando o agente apresenta o bearer correto
+- Prefixo `lov-` evita conflito com configs WG/OVPN manuais existentes

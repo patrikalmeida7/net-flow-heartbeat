@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      agents: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          enabled: boolean
+          id: string
+          last_ip: string | null
+          last_seen_at: string | null
+          nome: string
+          token_hash: string
+          updated_at: string
+          version: string | null
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          enabled?: boolean
+          id?: string
+          last_ip?: string | null
+          last_seen_at?: string | null
+          nome: string
+          token_hash: string
+          updated_at?: string
+          version?: string | null
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          enabled?: boolean
+          id?: string
+          last_ip?: string | null
+          last_seen_at?: string | null
+          nome?: string
+          token_hash?: string
+          updated_at?: string
+          version?: string | null
+        }
+        Relationships: []
+      }
       alertas: {
         Row: {
           concentrador_id: string | null
@@ -76,6 +115,7 @@ export type Database = {
           cpu_load: number | null
           created_at: string
           host: string
+          host_interno: string | null
           id: string
           identidade: string | null
           memory_used_pct: number | null
@@ -88,11 +128,13 @@ export type Database = {
           uptime_seconds: number | null
           usuarios_online: number
           versao_routeros: string | null
+          vpn_connection_id: string | null
         }
         Insert: {
           cpu_load?: number | null
           created_at?: string
           host: string
+          host_interno?: string | null
           id?: string
           identidade?: string | null
           memory_used_pct?: number | null
@@ -105,11 +147,13 @@ export type Database = {
           uptime_seconds?: number | null
           usuarios_online?: number
           versao_routeros?: string | null
+          vpn_connection_id?: string | null
         }
         Update: {
           cpu_load?: number | null
           created_at?: string
           host?: string
+          host_interno?: string | null
           id?: string
           identidade?: string | null
           memory_used_pct?: number | null
@@ -122,8 +166,17 @@ export type Database = {
           uptime_seconds?: number | null
           usuarios_online?: number
           versao_routeros?: string | null
+          vpn_connection_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "concentradores_vpn_connection_id_fkey"
+            columns: ["vpn_connection_id"]
+            isOneToOne: false
+            referencedRelation: "vpn_connections"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       device_credentials: {
         Row: {
@@ -506,6 +559,7 @@ export type Database = {
           created_at: string
           endereco: string | null
           host: string | null
+          host_interno: string | null
           id: string
           latitude: number | null
           longitude: number | null
@@ -517,11 +571,13 @@ export type Database = {
           ultima_coleta: string | null
           updated_at: string
           uso_banda_mbps: number | null
+          vpn_connection_id: string | null
         }
         Insert: {
           created_at?: string
           endereco?: string | null
           host?: string | null
+          host_interno?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
@@ -533,11 +589,13 @@ export type Database = {
           ultima_coleta?: string | null
           updated_at?: string
           uso_banda_mbps?: number | null
+          vpn_connection_id?: string | null
         }
         Update: {
           created_at?: string
           endereco?: string | null
           host?: string | null
+          host_interno?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
@@ -549,8 +607,17 @@ export type Database = {
           ultima_coleta?: string | null
           updated_at?: string
           uso_banda_mbps?: number | null
+          vpn_connection_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "rbs_vpn_connection_id_fkey"
+            columns: ["vpn_connection_id"]
+            isOneToOne: false
+            referencedRelation: "vpn_connections"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       snmp_credentials: {
         Row: {
@@ -654,6 +721,183 @@ export type Database = {
         }
         Relationships: []
       }
+      vpn_connections: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          desired_state: Database["public"]["Enums"]["vpn_desired_state"]
+          enabled: boolean
+          endpoint_host: string
+          endpoint_port: number
+          grupo: string | null
+          id: string
+          nome: string
+          observacoes: string | null
+          ovpn_config_encrypted: string | null
+          ovpn_config_nonce: string | null
+          ovpn_password_encrypted: string | null
+          ovpn_password_nonce: string | null
+          ovpn_username: string | null
+          protocol: Database["public"]["Enums"]["vpn_protocol"]
+          updated_at: string
+          wg_address_cidr: string | null
+          wg_allowed_ips: string | null
+          wg_dns: string | null
+          wg_peer_public_key: string | null
+          wg_persistent_keepalive: number | null
+          wg_preshared_key_encrypted: string | null
+          wg_preshared_key_nonce: string | null
+          wg_private_key_encrypted: string | null
+          wg_private_key_nonce: string | null
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          desired_state?: Database["public"]["Enums"]["vpn_desired_state"]
+          enabled?: boolean
+          endpoint_host: string
+          endpoint_port: number
+          grupo?: string | null
+          id?: string
+          nome: string
+          observacoes?: string | null
+          ovpn_config_encrypted?: string | null
+          ovpn_config_nonce?: string | null
+          ovpn_password_encrypted?: string | null
+          ovpn_password_nonce?: string | null
+          ovpn_username?: string | null
+          protocol: Database["public"]["Enums"]["vpn_protocol"]
+          updated_at?: string
+          wg_address_cidr?: string | null
+          wg_allowed_ips?: string | null
+          wg_dns?: string | null
+          wg_peer_public_key?: string | null
+          wg_persistent_keepalive?: number | null
+          wg_preshared_key_encrypted?: string | null
+          wg_preshared_key_nonce?: string | null
+          wg_private_key_encrypted?: string | null
+          wg_private_key_nonce?: string | null
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          desired_state?: Database["public"]["Enums"]["vpn_desired_state"]
+          enabled?: boolean
+          endpoint_host?: string
+          endpoint_port?: number
+          grupo?: string | null
+          id?: string
+          nome?: string
+          observacoes?: string | null
+          ovpn_config_encrypted?: string | null
+          ovpn_config_nonce?: string | null
+          ovpn_password_encrypted?: string | null
+          ovpn_password_nonce?: string | null
+          ovpn_username?: string | null
+          protocol?: Database["public"]["Enums"]["vpn_protocol"]
+          updated_at?: string
+          wg_address_cidr?: string | null
+          wg_allowed_ips?: string | null
+          wg_dns?: string | null
+          wg_peer_public_key?: string | null
+          wg_persistent_keepalive?: number | null
+          wg_preshared_key_encrypted?: string | null
+          wg_preshared_key_nonce?: string | null
+          wg_private_key_encrypted?: string | null
+          wg_private_key_nonce?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vpn_connections_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vpn_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: number
+          message: string | null
+          metadata: Json | null
+          vpn_connection_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: number
+          message?: string | null
+          metadata?: Json | null
+          vpn_connection_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: number
+          message?: string | null
+          metadata?: Json | null
+          vpn_connection_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vpn_events_vpn_connection_id_fkey"
+            columns: ["vpn_connection_id"]
+            isOneToOne: false
+            referencedRelation: "vpn_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vpn_status: {
+        Row: {
+          internal_ip: string | null
+          last_error: string | null
+          last_handshake_at: string | null
+          latency_ms: number | null
+          online: boolean
+          reported_at: string
+          rx_bytes: number | null
+          tx_bytes: number | null
+          uptime_seconds: number | null
+          vpn_connection_id: string
+        }
+        Insert: {
+          internal_ip?: string | null
+          last_error?: string | null
+          last_handshake_at?: string | null
+          latency_ms?: number | null
+          online?: boolean
+          reported_at?: string
+          rx_bytes?: number | null
+          tx_bytes?: number | null
+          uptime_seconds?: number | null
+          vpn_connection_id: string
+        }
+        Update: {
+          internal_ip?: string | null
+          last_error?: string | null
+          last_handshake_at?: string | null
+          latency_ms?: number | null
+          online?: boolean
+          reported_at?: string
+          rx_bytes?: number | null
+          tx_bytes?: number | null
+          uptime_seconds?: number | null
+          vpn_connection_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vpn_status_vpn_connection_id_fkey"
+            columns: ["vpn_connection_id"]
+            isOneToOne: true
+            referencedRelation: "vpn_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -661,6 +905,10 @@ export type Database = {
     Functions: {
       get_device_credential_password: {
         Args: { _credential_id: string }
+        Returns: string
+      }
+      get_vpn_secret: {
+        Args: { _connection_id: string; _field: string }
         Returns: string
       }
       has_role: {
@@ -673,6 +921,10 @@ export type Database = {
       purge_old_metric_samples: { Args: never; Returns: undefined }
       set_device_credential_password: {
         Args: { _credential_id: string; _password: string }
+        Returns: undefined
+      }
+      set_vpn_secret: {
+        Args: { _connection_id: string; _field: string; _value: string }
         Returns: undefined
       }
     }
@@ -705,6 +957,8 @@ export type Database = {
       snmp_auth_proto: "none" | "MD5" | "SHA"
       snmp_priv_proto: "none" | "DES" | "AES"
       snmp_version: "v2c" | "v3"
+      vpn_desired_state: "up" | "down"
+      vpn_protocol: "wireguard" | "openvpn"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -862,6 +1116,8 @@ export const Constants = {
       snmp_auth_proto: ["none", "MD5", "SHA"],
       snmp_priv_proto: ["none", "DES", "AES"],
       snmp_version: ["v2c", "v3"],
+      vpn_desired_state: ["up", "down"],
+      vpn_protocol: ["wireguard", "openvpn"],
     },
   },
 } as const
