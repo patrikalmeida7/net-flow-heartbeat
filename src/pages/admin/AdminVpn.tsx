@@ -158,7 +158,7 @@ export default function AdminVpn() {
     }
     setSaving(true);
 
-    const base: Record<string, unknown> = {
+    const base = {
       nome: form.nome.trim(),
       protocol: form.protocol,
       agent_id: form.agent_id,
@@ -166,17 +166,18 @@ export default function AdminVpn() {
       endpoint_port: port,
       grupo: form.grupo.trim() || null,
       observacoes: form.observacoes.trim() || null,
+      ...(form.protocol === "wireguard"
+        ? {
+            wg_peer_public_key: form.wg_peer_public_key.trim() || null,
+            wg_address_cidr: form.wg_address_cidr.trim() || null,
+            wg_allowed_ips: form.wg_allowed_ips.trim() || null,
+            wg_dns: form.wg_dns.trim() || null,
+            wg_persistent_keepalive: parseInt(form.wg_persistent_keepalive, 10) || 25,
+          }
+        : {
+            ovpn_username: form.ovpn_username.trim() || null,
+          }),
     };
-
-    if (form.protocol === "wireguard") {
-      base.wg_peer_public_key = form.wg_peer_public_key.trim() || null;
-      base.wg_address_cidr = form.wg_address_cidr.trim() || null;
-      base.wg_allowed_ips = form.wg_allowed_ips.trim() || null;
-      base.wg_dns = form.wg_dns.trim() || null;
-      base.wg_persistent_keepalive = parseInt(form.wg_persistent_keepalive, 10) || 25;
-    } else {
-      base.ovpn_username = form.ovpn_username.trim() || null;
-    }
 
     let connectionId = editingId;
     if (editingId) {
@@ -197,23 +198,41 @@ export default function AdminVpn() {
     }
 
     // gravar segredos só se preenchidos
-    const secretCalls: Promise<unknown>[] = [];
+    const setSecret = async (field: string, value: string) => {
+      const { error } = await (supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ error: { message: string } | null }>)("set_vpn_secret", {
+        _connection_id: connectionId!,
+        _field: field,
+        _value: value,
+      });
+      return error;
+    };
+
+    const secretErrors: Array<{ message: string }> = [];
     if (form.protocol === "wireguard") {
-      if (form.wg_private_key.trim())
-        secretCalls.push(supabase.rpc("set_vpn_secret", { _connection_id: connectionId!, _field: "wg_private_key", _value: form.wg_private_key.trim() }));
-      if (form.wg_preshared_key.trim())
-        secretCalls.push(supabase.rpc("set_vpn_secret", { _connection_id: connectionId!, _field: "wg_preshared_key", _value: form.wg_preshared_key.trim() }));
+      if (form.wg_private_key.trim()) {
+        const e = await setSecret("wg_private_key", form.wg_private_key.trim());
+        if (e) secretErrors.push(e);
+      }
+      if (form.wg_preshared_key.trim()) {
+        const e = await setSecret("wg_preshared_key", form.wg_preshared_key.trim());
+        if (e) secretErrors.push(e);
+      }
     } else {
-      if (form.ovpn_config.trim())
-        secretCalls.push(supabase.rpc("set_vpn_secret", { _connection_id: connectionId!, _field: "ovpn_config", _value: form.ovpn_config }));
-      if (form.ovpn_password.trim())
-        secretCalls.push(supabase.rpc("set_vpn_secret", { _connection_id: connectionId!, _field: "ovpn_password", _value: form.ovpn_password }));
+      if (form.ovpn_config.trim()) {
+        const e = await setSecret("ovpn_config", form.ovpn_config);
+        if (e) secretErrors.push(e);
+      }
+      if (form.ovpn_password.trim()) {
+        const e = await setSecret("ovpn_password", form.ovpn_password);
+        if (e) secretErrors.push(e);
+      }
     }
-    const results = await Promise.all(secretCalls);
-    const secretErr = results.find((r: any) => r?.error);
-    if (secretErr) {
+    if (secretErrors.length > 0) {
       setSaving(false);
-      toast.error("Erro ao salvar segredo", { description: (secretErr as any).error.message });
+      toast.error("Erro ao salvar segredo", { description: secretErrors[0].message });
       return;
     }
 
