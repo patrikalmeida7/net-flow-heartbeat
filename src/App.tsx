@@ -10,7 +10,9 @@ import AppLayout from "@/components/AppLayout";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Concentradores from "./pages/Concentradores";
+import ConcentradorDetalhe from "./pages/ConcentradorDetalhe";
 import RBS from "./pages/RBS";
+import RbsDetalhe from "./pages/RbsDetalhe";
 import PPPoE from "./pages/PPPoE";
 import Alertas from "./pages/Alertas";
 import Eventos from "./pages/Eventos";
@@ -38,7 +40,9 @@ const App = () => (
             >
               <Route path="/" element={<Dashboard />} />
               <Route path="/concentradores" element={<Concentradores />} />
+              <Route path="/concentradores/:id" element={<ConcentradorDetalhe />} />
               <Route path="/rbs" element={<RBS />} />
+              <Route path="/rbs/:id" element={<RbsDetalhe />} />
               <Route path="/pppoe" element={<PPPoE />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/eventos" element={<Eventos />} />

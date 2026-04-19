@@ -138,15 +138,15 @@ export default function RemoteAccessTab(props: Props) {
         if (error) throw error;
       } else {
         const insertRow = {
-          [props.kind === "concentrador" ? "concentrador_id" : "rbs_id"]: props.deviceId,
+          concentrador_id: props.kind === "concentrador" ? props.deviceId : null,
+          rbs_id: props.kind === "rbs" ? props.deviceId : null,
           protocol: "ssh" as const,
           host: parsed.data.host,
           port: parsed.data.port,
           username: parsed.data.username,
           observacoes: parsed.data.observacoes || null,
           enabled: parsed.data.enabled,
-          // Os bytea são exigidos pelo schema; gravamos placeholders e a senha real
-          // entra logo abaixo via RPC set_device_credential_password.
+          // bytea exigidos pelo schema; placeholders, senha real entra via RPC abaixo.
           password_encrypted: "\\x00",
           password_nonce: "\\x00",
         };

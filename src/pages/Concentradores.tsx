@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -38,8 +39,10 @@ export default function Concentradores() {
           </TableHeader>
           <TableBody>
             {(data ?? []).map((c) => (
-              <TableRow key={c.id}>
-                <TableCell className="font-medium">{c.nome}</TableCell>
+              <TableRow key={c.id} className="cursor-pointer hover:bg-muted/40">
+                <TableCell className="font-medium">
+                  <Link to={`/concentradores/${c.id}`} className="hover:underline">{c.nome}</Link>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{c.host}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{c.modelo ?? "—"}</TableCell>
                 <TableCell className="text-right font-mono">{c.cpu_load ?? "—"}%</TableCell>
