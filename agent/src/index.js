@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RouterOSAPI } from "node-routeros";
 import { collectSnmp } from "./snmp.js";
+import { startVpnLoop } from "./vpn.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -232,6 +233,18 @@ await tickRouterOs();
 await tickSnmp();
 setInterval(tickRouterOs, poll_interval_seconds * 1000);
 setInterval(tickSnmp, snmp_poll_interval_seconds * 1000);
+
+// VPN loop (opcional — só sobe se as variáveis de ambiente estiverem definidas)
+if (process.env.VPN_AGENT_TOKEN && process.env.VPN_SYNC_URL) {
+  log("INFO", `→ VPN loop ATIVO (sync: ${process.env.VPN_SYNC_URL})`);
+  startVpnLoop({
+    syncUrl: process.env.VPN_SYNC_URL,
+    token: process.env.VPN_AGENT_TOKEN,
+    intervalMs: 15_000,
+  });
+} else {
+  log("INFO", "→ VPN loop desativado (defina VPN_AGENT_TOKEN e VPN_SYNC_URL para ativar)");
+}
 
 // Graceful shutdown
 for (const sig of ["SIGINT", "SIGTERM"]) {
