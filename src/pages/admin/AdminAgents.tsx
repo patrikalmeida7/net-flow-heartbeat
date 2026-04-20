@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Copy, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Copy, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
+import { AgentInstallDialog } from "@/components/AgentInstallDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,7 @@ export default function AdminAgents() {
   const [form, setForm] = useState({ nome: "", descricao: "" });
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [installAgent, setInstallAgent] = useState<{ nome: string; token: string | null } | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -148,6 +150,14 @@ export default function AdminAgents() {
                   <TableCell className="font-mono text-xs">{a.last_ip ?? "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{a.version ?? "—"}</TableCell>
                   <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Comando de instalação"
+                      onClick={() => setInstallAgent({ nome: a.nome, token: null })}
+                    >
+                      <Terminal className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => setDeleteId(a.id)}>
                       <Trash2 className="h-4 w-4 text-status-offline" />
                     </Button>
@@ -189,16 +199,24 @@ export default function AdminAgents() {
               <div className="rounded-md border border-border bg-muted/40 p-3">
                 <code className="break-all font-mono text-xs">{generatedToken}</code>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(generatedToken);
-                  toast.success("Token copiado");
-                }}
-              >
-                <Copy className="mr-2 h-3 w-3" /> Copiar token
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedToken);
+                    toast.success("Token copiado");
+                  }}
+                >
+                  <Copy className="mr-2 h-3 w-3" /> Copiar token
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setInstallAgent({ nome: form.nome, token: generatedToken })}
+                >
+                  <Terminal className="mr-2 h-3 w-3" /> Ver comando de instalação
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Configure no agente: <code className="rounded bg-muted px-1">VPN_AGENT_TOKEN={"<token>"}</code>
               </p>
@@ -232,6 +250,13 @@ export default function AdminAgents() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AgentInstallDialog
+        open={!!installAgent}
+        onOpenChange={(o) => !o && setInstallAgent(null)}
+        agentName={installAgent?.nome}
+        vpnToken={installAgent?.token ?? null}
+      />
     </div>
   );
 }
