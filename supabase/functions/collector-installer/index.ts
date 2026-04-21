@@ -14,6 +14,8 @@ const PUBLIC_BASE_URL =
   Deno.env.get("PUBLIC_INSTALLER_BASE_URL") ??
   "https://netflow.emultix.com.br/install.sh";
 
+const SETUP_URL = PUBLIC_BASE_URL.replace(/\/install\.sh$/, "") + "/install.sh?setup=1";
+
 const BOOTSTRAP = `#!/usr/bin/env bash
 # ============================================================================
 # NOC Collector VPS — Bootstrap
@@ -30,7 +32,7 @@ err() { echo -e "\${RED}✗\${NC} \$*" >&2; }
 
 [ "\$(id -u)" -eq 0 ] || { err "Rode como root: curl ... | sudo bash"; exit 1; }
 
-SETUP_URL="\${PUBLIC_BASE_URL%/install.sh}/install.sh?setup=1"
+SETUP_URL="${SETUP_URL}"
 TMP_SETUP="\$(mktemp /tmp/noc-vultr-setup.XXXXXX.sh)"
 trap 'rm -f "\$TMP_SETUP"' EXIT
 
