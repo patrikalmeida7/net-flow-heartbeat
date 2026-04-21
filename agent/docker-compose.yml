@@ -36,6 +36,13 @@ services:
       # VPN (opcional; se não setar, o loop fica desligado)
       VPN_AGENT_TOKEN: ${VPN_AGENT_TOKEN:-}
       VPN_SYNC_URL: ${VPN_SYNC_URL:-}
+      # Provisionamento de clientes (opcional). Quando setado,
+      # o agente roda noc-add-client automaticamente.
+      CLIENTS_SYNC_URL: ${CLIENTS_SYNC_URL:-}
+      NOC_ADD_CLIENT_CMD: ${NOC_ADD_CLIENT_CMD:-noc-add-client}
+      NOC_CLIENT_CONF_PATH: ${NOC_CLIENT_CONF_PATH:-/etc/wireguard/clients/{nome}.conf}
+      CLIENTS_POLL_INTERVAL_MS: ${CLIENTS_POLL_INTERVAL_MS:-15000}
+      CLIENTS_CMD_TIMEOUT_MS: ${CLIENTS_CMD_TIMEOUT_MS:-60000}
       # Tag pra aparecer nos logs/health
       AGENT_IMAGE_TAG: ${IMAGE_TAG:-latest}
 

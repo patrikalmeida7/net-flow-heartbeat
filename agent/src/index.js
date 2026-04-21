@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { RouterOSAPI } from "node-routeros";
 import { collectSnmp } from "./snmp.js";
 import { startVpnLoop } from "./vpn.js";
+import { startClientsLoop } from "./clients.js";
 
 // Marker pro healthcheck do Docker. Atualizado após cada tick
 // bem-sucedido. Se ficar > 90s sem mtime novo, container fica
@@ -260,6 +261,21 @@ if (process.env.VPN_AGENT_TOKEN && process.env.VPN_SYNC_URL) {
   });
 } else {
   log("INFO", "→ VPN loop desativado (defina VPN_AGENT_TOKEN e VPN_SYNC_URL para ativar)");
+}
+
+// Clients loop (provisionamento automático via noc-add-client)
+if (process.env.VPN_AGENT_TOKEN && process.env.CLIENTS_SYNC_URL) {
+  log("INFO", `→ Clients loop ATIVO (sync: ${process.env.CLIENTS_SYNC_URL})`);
+  startClientsLoop({
+    syncUrl: process.env.CLIENTS_SYNC_URL,
+    token: process.env.VPN_AGENT_TOKEN,
+    addCmd: process.env.NOC_ADD_CLIENT_CMD,
+    confPath: process.env.NOC_CLIENT_CONF_PATH,
+    intervalMs: Number(process.env.CLIENTS_POLL_INTERVAL_MS) || 15_000,
+    cmdTimeoutMs: Number(process.env.CLIENTS_CMD_TIMEOUT_MS) || 60_000,
+  });
+} else {
+  log("INFO", "→ Clients loop desativado (defina VPN_AGENT_TOKEN e CLIENTS_SYNC_URL para ativar)");
 }
 
 // Graceful shutdown

@@ -1,10 +1,11 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Activity, Cpu, Network, Radio, Server, Users } from "lucide-react";
+import { Activity, Cpu, Network, Radio, Server, Users, UserPlus } from "lucide-react";
 import AdminConcentradores from "./admin/AdminConcentradores";
 import AdminRBS from "./admin/AdminRBS";
 import AdminUsuarios from "./admin/AdminUsuarios";
 import AdminSnmp from "./admin/AdminSnmp";
 import AdminVpn from "./admin/AdminVpn";
+import AdminVpnClients from "./admin/AdminVpnClients";
 import AdminAgents from "./admin/AdminAgents";
 
 export default function Admin() {
@@ -13,7 +14,7 @@ export default function Admin() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Administração</h1>
         <p className="text-sm text-muted-foreground">
-          Gerencie concentradores, RBS, SNMP, VPNs, agentes e papéis de usuários. Acesso restrito a administradores.
+          Gerencie concentradores, RBS, SNMP, VPNs, clientes VPN, agentes e papéis de usuários. Acesso restrito a administradores.
         </p>
       </div>
 
@@ -31,6 +32,9 @@ export default function Admin() {
           <TabsTrigger value="vpn" className="gap-2">
             <Network className="h-4 w-4" /> VPN
           </TabsTrigger>
+          <TabsTrigger value="vpn-clients" className="gap-2">
+            <UserPlus className="h-4 w-4" /> Clientes VPN
+          </TabsTrigger>
           <TabsTrigger value="agents" className="gap-2">
             <Cpu className="h-4 w-4" /> Agentes
           </TabsTrigger>
@@ -42,6 +46,7 @@ export default function Admin() {
         <TabsContent value="rbs"><AdminRBS /></TabsContent>
         <TabsContent value="snmp"><AdminSnmp /></TabsContent>
         <TabsContent value="vpn"><AdminVpn /></TabsContent>
+        <TabsContent value="vpn-clients"><AdminVpnClients /></TabsContent>
         <TabsContent value="agents"><AdminAgents /></TabsContent>
         <TabsContent value="usuarios"><AdminUsuarios /></TabsContent>
       </Tabs>
