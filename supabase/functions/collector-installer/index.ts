@@ -12,9 +12,9 @@ import setupScript from "./setup.sh.ts";
 
 const PUBLIC_BASE_URL =
   Deno.env.get("PUBLIC_INSTALLER_BASE_URL") ??
-  "https://netflow.emultix.com.br/install.sh";
+  "https://rzubqfexhptentnkjcaq.supabase.co/functions/v1/collector-installer";
 
-const SETUP_URL = PUBLIC_BASE_URL.replace(/\/install\.sh$/, "") + "/install.sh?setup=1";
+const SETUP_URL = PUBLIC_BASE_URL + "?setup=1";
 
 const BOOTSTRAP = `#!/usr/bin/env bash
 # ============================================================================
