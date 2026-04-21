@@ -39,11 +39,16 @@ SSH na VPS:
 ssh root@<IP_VULTR>
 ```
 
-Baixa e roda o script:
+Baixa e roda o instalador sincronizado com a branch `main`:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/patrikalmeida7/net-flow-heartbeat/main/deploy/vultr-collector-setup.sh -o setup.sh
-chmod +x setup.sh
-sudo bash setup.sh
+curl -fsSL https://raw.githubusercontent.com/patrikalmeida7/ntflow/main/deploy/install-vultr-collector.sh | sudo bash
+```
+
+Se quiser baixar antes de executar:
+```bash
+curl -fsSL https://raw.githubusercontent.com/patrikalmeida7/ntflow/main/deploy/install-vultr-collector.sh -o install-vultr-collector.sh
+chmod +x install-vultr-collector.sh
+sudo bash install-vultr-collector.sh
 ```
 
 Vai pedir:

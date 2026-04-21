@@ -3,7 +3,7 @@
 # NOC Collector VPS — Setup Completo Automatizado
 # ============================================================================
 # Roda em: Ubuntu 22.04 LTS x64
-# Uso:     curl -fsSL https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPO/main/deploy/vultr-collector-setup.sh | sudo bash
+# Uso:     curl -fsSL https://raw.githubusercontent.com/patrikalmeida7/ntflow/main/deploy/install-vultr-collector.sh | sudo bash
 # Ou:      sudo bash vultr-collector-setup.sh
 #
 # O que instala:
