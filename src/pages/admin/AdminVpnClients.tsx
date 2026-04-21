@@ -72,7 +72,7 @@ function statusBadge(status: string) {
       );
     case "active":
       return (
-        <Badge variant="default" className="gap-1 bg-emerald-600 hover:bg-emerald-600">
+        <Badge variant="default" className="gap-1">
           <CheckCircle2 className="h-3 w-3" /> Ativo
         </Badge>
       );
