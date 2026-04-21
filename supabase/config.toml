@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.collector-installer]
 verify_jwt = false
+
+[functions.vpn-clients-agent-sync]
+verify_jwt = false
