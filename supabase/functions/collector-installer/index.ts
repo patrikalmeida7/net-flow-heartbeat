@@ -30,7 +30,7 @@ err() { echo -e "\${RED}✗\${NC} \$*" >&2; }
 
 [ "\$(id -u)" -eq 0 ] || { err "Rode como root: curl ... | sudo bash"; exit 1; }
 
-SETUP_URL="${PUBLIC_BASE_URL%/install.sh}/install.sh?setup=1"
+SETUP_URL="\${PUBLIC_BASE_URL%/install.sh}/install.sh?setup=1"
 TMP_SETUP="\$(mktemp /tmp/noc-vultr-setup.XXXXXX.sh)"
 trap 'rm -f "\$TMP_SETUP"' EXIT
 
