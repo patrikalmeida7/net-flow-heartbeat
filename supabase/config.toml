@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.metrics-ingest]
 verify_jwt = false
+
+[functions.collector-installer]
+verify_jwt = false
