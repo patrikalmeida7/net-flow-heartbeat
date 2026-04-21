@@ -13,6 +13,19 @@ import { RouterOSAPI } from "node-routeros";
 import { collectSnmp } from "./snmp.js";
 import { startVpnLoop } from "./vpn.js";
 
+// Marker pro healthcheck do Docker. Atualizado após cada tick
+// bem-sucedido. Se ficar > 90s sem mtime novo, container fica
+// unhealthy e Watchtower/Docker reinicia.
+const HEALTH_MARKER = process.env.HEALTH_MARKER || "/tmp/noc-agent.healthy";
+function touchHealth() {
+  try {
+    const now = new Date();
+    fs.writeFileSync(HEALTH_MARKER, now.toISOString());
+  } catch {
+    /* noop — não derruba o agente se /tmp falhar */
+  }
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
@@ -185,6 +198,8 @@ async function tickRouterOs() {
       }
     }),
   );
+  // Mesmo se algum MK falhar individualmente, o loop em si está vivo
+  touchHealth();
 }
 
 // ---------- Loop SNMP (concentradores + RBS) ----------
@@ -219,6 +234,7 @@ async function tickSnmp() {
       devices,
     });
     log("INFO", `SNMP ✓ devices=${devices.length} samples=${res.samples_inserted} ifaces=${res.interfaces_upserted}`);
+    touchHealth();
   } catch (err) {
     log("ERROR", "SNMP envio falhou:", err.message);
   }
