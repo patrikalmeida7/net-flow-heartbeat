@@ -1,0 +1,70 @@
+name: Build & Push noc-agent image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - '.github/workflows/agent-image.yml'
+  workflow_dispatch:
+
+# Permissões mínimas pra publicar no GitHub Container Registry
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image refs
+        id: meta
+        run: |
+          # Nome da imagem em lowercase (GHCR exige)
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER}/${REPO}-agent"
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tags=${IMAGE}:latest,${IMAGE}:sha-${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push (linux/amd64)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./agent
+          file: ./agent/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # Cache GitHub-hosted (não precisa de registry extra)
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+
+      - name: Summary
+        run: |
+          echo "### 🚢 Imagem publicada" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tags:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Watchtower vai atualizar a VPS em até 60s." >> "$GITHUB_STEP_SUMMARY"

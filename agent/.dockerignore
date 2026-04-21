@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+*.md
+config.json
+systemd
+install.sh
+.DS_Store
