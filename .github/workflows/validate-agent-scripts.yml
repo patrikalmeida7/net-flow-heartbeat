@@ -1,0 +1,113 @@
+name: Validate agent scripts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-required-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure required agent scripts exist
+        shell: bash
+        run: |
+          set -u
+
+          # Lista de arquivos essenciais que PRECISAM existir no repo
+          REQUIRED_FILES=(
+            "agent/scripts/install-vps.sh"
+            "agent/scripts/check-agent.sh"
+            "agent/scripts/healthcheck.sh"
+            "agent/Dockerfile"
+            "agent/docker-compose.yml"
+            "agent/.env.example"
+            "agent/config.example.json"
+          )
+
+          MISSING=()
+          EMPTY=()
+
+          for f in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$f" ]; then
+              MISSING+=("$f")
+            elif [ ! -s "$f" ]; then
+              EMPTY+=("$f")
+            fi
+          done
+
+          if [ ${#MISSING[@]} -gt 0 ] || [ ${#EMPTY[@]} -gt 0 ]; then
+            echo "::group::❌ Validação dos scripts do agente FALHOU"
+            echo ""
+            echo "Um ou mais arquivos essenciais para o deploy do noc-agent"
+            echo "estão ausentes ou vazios no repositório."
+            echo ""
+            echo "Sem eles, o instalador da VPS quebra com erro 404 ao rodar:"
+            echo "  curl -fsSL https://raw.githubusercontent.com/\${OWNER}/\${REPO}/main/agent/scripts/install-vps.sh | sudo bash"
+            echo ""
+
+            if [ ${#MISSING[@]} -gt 0 ]; then
+              echo "Arquivos AUSENTES (${#MISSING[@]}):"
+              for f in "${MISSING[@]}"; do
+                echo "  - $f"
+              done
+              echo ""
+            fi
+
+            if [ ${#EMPTY[@]} -gt 0 ]; then
+              echo "Arquivos VAZIOS (${#EMPTY[@]}):"
+              for f in "${EMPTY[@]}"; do
+                echo "  - $f"
+              done
+              echo ""
+            fi
+
+            echo "Como corrigir:"
+            echo "  1. Verifique se a sincronização Lovable → GitHub completou."
+            echo "  2. Restaure os arquivos via histórico do Lovable ou commit manual."
+            echo "  3. Reexecute este workflow."
+            echo "::endgroup::"
+
+            {
+              echo "## ❌ Scripts essenciais do agente ausentes"
+              echo ""
+              if [ ${#MISSING[@]} -gt 0 ]; then
+                echo "### Ausentes"
+                for f in "${MISSING[@]}"; do echo "- \`$f\`"; done
+                echo ""
+              fi
+              if [ ${#EMPTY[@]} -gt 0 ]; then
+                echo "### Vazios"
+                for f in "${EMPTY[@]}"; do echo "- \`$f\`"; done
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            exit 1
+          fi
+
+          echo "✅ Todos os ${#REQUIRED_FILES[@]} arquivos essenciais estão presentes e não-vazios."
+          {
+            echo "## ✅ Scripts do agente validados"
+            echo ""
+            for f in "${REQUIRED_FILES[@]}"; do
+              echo "- \`$f\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Lint shell scripts (shellcheck)
+        shell: bash
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # Não falha o build por warnings de estilo, só por erros graves
+          shellcheck -S error agent/scripts/*.sh || {
+            echo "::error::shellcheck encontrou erros graves nos scripts do agente."
+            exit 1
+          }
+          echo "✅ shellcheck OK"
