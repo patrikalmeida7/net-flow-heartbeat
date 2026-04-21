@@ -15,6 +15,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const VPN_SYNC_URL = `${SUPABASE_URL}/functions/v1/vpn-agent-sync`;
 const INGEST_URL = `${SUPABASE_URL}/functions/v1/agent-ingest`;
 const METRICS_URL = `${SUPABASE_URL}/functions/v1/metrics-ingest`;
+const COLLECTOR_INSTALLER_URL = `${SUPABASE_URL}/functions/v1/collector-installer`;
 
 interface AgentInstallDialogProps {
   open: boolean;
@@ -68,48 +69,32 @@ export function AgentInstallDialog({
 
   const blocks: Block[] = [
     {
-      title: "1. Preparar a VM (Ubuntu 22.04+)",
-      body: `# Como root
-apt update && apt upgrade -y
-apt install -y curl git wireguard wireguard-tools openvpn iputils-ping
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
-node --version`,
+      title: "🚀 Instalação automática (1 comando — Ubuntu 22.04+)",
+      body: `# Como root na VPS Vultr (ou qualquer Ubuntu 22.04+)
+INGEST_TOKEN="${ingest}" sudo -E bash -c "curl -fsSL ${COLLECTOR_INSTALLER_URL} | bash"`,
     },
     {
-      title: "2. Baixar e instalar o agente",
-      body: `cd /opt
-git clone <URL_DO_SEU_REPO>.git noc-source
-cd noc-source/agent
-sudo bash install.sh`,
+      title: "Alternativa: rodar interativo (script pergunta o token)",
+      body: `curl -fsSL ${COLLECTOR_INSTALLER_URL} | sudo bash`,
     },
     {
-      title: "3. Configurar concentradores (config.json)",
-      body: `nano /opt/noc-agent/config.json
-
-# Edite os campos:
-#  - "ingest_token": "${ingest}"
-#  - "concentradores": [{ host, user, password, snmp: {...} }]
-#  - Se quiser RBS, adicione em "rbs": [...]`,
-    },
-    {
-      title: "4. Ativar loop VPN (variáveis de ambiente)",
+      title: "Após instalar — ativar loop VPN deste agente",
       body: `sudo systemctl edit noc-agent
 
 # Cole exatamente isto e salve:
 [Service]
 Environment="VPN_AGENT_TOKEN=${vpn}"
-Environment="VPN_SYNC_URL=${VPN_SYNC_URL}"`,
-    },
-    {
-      title: "5. Iniciar e ver logs",
-      body: `sudo systemctl daemon-reload
-sudo systemctl enable --now noc-agent
+Environment="VPN_SYNC_URL=${VPN_SYNC_URL}"
+
+# Aplicar:
+sudo systemctl daemon-reload
+sudo systemctl restart noc-agent
 sudo journalctl -u noc-agent -f`,
     },
     {
-      title: "URLs do projeto (já preenchidas)",
-      body: `Ingest URL : ${INGEST_URL}
+      title: "URLs do projeto (referência)",
+      body: `Installer  : ${COLLECTOR_INSTALLER_URL}
+Ingest URL : ${INGEST_URL}
 Metrics URL: ${METRICS_URL}
 VPN Sync   : ${VPN_SYNC_URL}`,
     },
@@ -117,22 +102,13 @@ VPN Sync   : ${VPN_SYNC_URL}`,
 
   // Bloco "tudo em um" para copiar de uma vez
   const allInOne = `#!/usr/bin/env bash
-# Instalação completa do NOC Agent
+# Instalação completa do NOC Collector + ativação VPN
 set -euo pipefail
 
-# 1. Dependências
-apt update
-apt install -y curl git wireguard wireguard-tools openvpn iputils-ping
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
+# 1. Instala collector (Docker, WireGuard, OpenVPN, agente)
+INGEST_TOKEN="${ingest}" curl -fsSL ${COLLECTOR_INSTALLER_URL} | bash
 
-# 2. Código
-cd /opt
-[ -d noc-source ] || git clone <URL_DO_SEU_REPO>.git noc-source
-cd noc-source/agent
-bash install.sh
-
-# 3. Variáveis VPN
+# 2. Ativa loop VPN do agente
 mkdir -p /etc/systemd/system/noc-agent.service.d
 cat > /etc/systemd/system/noc-agent.service.d/override.conf <<EOF
 [Service]
@@ -140,9 +116,9 @@ Environment="VPN_AGENT_TOKEN=${vpn}"
 Environment="VPN_SYNC_URL=${VPN_SYNC_URL}"
 EOF
 
-# 4. Editar config (interativo)
-echo ">>> Edite agora /opt/noc-agent/config.json com seus concentradores e ingest_token"
-echo ">>> Depois rode: systemctl enable --now noc-agent && journalctl -u noc-agent -f"`;
+systemctl daemon-reload
+systemctl restart noc-agent
+journalctl -u noc-agent -f`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
