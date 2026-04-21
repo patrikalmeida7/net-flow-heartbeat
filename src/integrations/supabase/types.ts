@@ -721,6 +721,74 @@ export type Database = {
         }
         Relationships: []
       }
+      vpn_clients: {
+        Row: {
+          agent_id: string
+          attempts: number
+          config_encrypted: string | null
+          config_nonce: string | null
+          config_sent_email_at: string | null
+          created_at: string
+          created_by: string | null
+          email: string | null
+          id: string
+          internal_ip: string
+          last_error: string | null
+          nome: string
+          observacoes: string | null
+          provisioned_at: string | null
+          removed_at: string | null
+          status: Database["public"]["Enums"]["vpn_client_status"]
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          attempts?: number
+          config_encrypted?: string | null
+          config_nonce?: string | null
+          config_sent_email_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          id?: string
+          internal_ip: string
+          last_error?: string | null
+          nome: string
+          observacoes?: string | null
+          provisioned_at?: string | null
+          removed_at?: string | null
+          status?: Database["public"]["Enums"]["vpn_client_status"]
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          attempts?: number
+          config_encrypted?: string | null
+          config_nonce?: string | null
+          config_sent_email_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          id?: string
+          internal_ip?: string
+          last_error?: string | null
+          nome?: string
+          observacoes?: string | null
+          provisioned_at?: string | null
+          removed_at?: string | null
+          status?: Database["public"]["Enums"]["vpn_client_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vpn_clients_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vpn_connections: {
         Row: {
           agent_id: string | null
@@ -907,6 +975,7 @@ export type Database = {
         Args: { _credential_id: string }
         Returns: string
       }
+      get_vpn_client_config: { Args: { _client_id: string }; Returns: string }
       get_vpn_secret: {
         Args: { _connection_id: string; _field: string }
         Returns: string
@@ -921,6 +990,10 @@ export type Database = {
       purge_old_metric_samples: { Args: never; Returns: undefined }
       set_device_credential_password: {
         Args: { _credential_id: string; _password: string }
+        Returns: undefined
+      }
+      set_vpn_client_config: {
+        Args: { _client_id: string; _config: string }
         Returns: undefined
       }
       set_vpn_secret: {
@@ -957,6 +1030,12 @@ export type Database = {
       snmp_auth_proto: "none" | "MD5" | "SHA"
       snmp_priv_proto: "none" | "DES" | "AES"
       snmp_version: "v2c" | "v3"
+      vpn_client_status:
+        | "pending"
+        | "provisioning"
+        | "active"
+        | "failed"
+        | "removed"
       vpn_desired_state: "up" | "down"
       vpn_protocol: "wireguard" | "openvpn"
     }
@@ -1116,6 +1195,13 @@ export const Constants = {
       snmp_auth_proto: ["none", "MD5", "SHA"],
       snmp_priv_proto: ["none", "DES", "AES"],
       snmp_version: ["v2c", "v3"],
+      vpn_client_status: [
+        "pending",
+        "provisioning",
+        "active",
+        "failed",
+        "removed",
+      ],
       vpn_desired_state: ["up", "down"],
       vpn_protocol: ["wireguard", "openvpn"],
     },
