@@ -28,7 +28,7 @@ err()  { echo -e "${RED}✗${NC} $*" >&2; }
 [ "$(id -u)" -eq 0 ] || { err "Rode como root: sudo bash $0"; exit 1; }
 
 # ============================================================================
-# 0. Pergunta dados essenciais
+# 0. Coleta dados essenciais (mínimo de perguntas)
 # ============================================================================
 echo ""
 echo "============================================================"
@@ -36,15 +36,26 @@ echo "  NOC COLLECTOR — Setup VPS Vultr"
 echo "============================================================"
 echo ""
 
-read -rp "🔑 Cole o INGEST_TOKEN do Lovable Cloud (secret AGENT_INGEST_TOKEN): " INGEST_TOKEN
+# Token: aceita via env (INGEST_TOKEN=xxx sudo -E bash ...) ou pergunta uma vez
+INGEST_TOKEN="${INGEST_TOKEN:-}"
+if [ -z "$INGEST_TOKEN" ]; then
+  echo "Pegue o token em: Lovable Cloud → Secrets → AGENT_INGEST_TOKEN"
+  read -rsp "🔑 Cole o INGEST_TOKEN e pressione Enter: " INGEST_TOKEN
+  echo ""
+fi
 [ -z "$INGEST_TOKEN" ] && { err "Token vazio"; exit 1; }
 
-read -rp "🌐 Subdomínio público da VPS (ex: collector.seunoc.com.br) [enter pra usar IP]: " PUBLIC_HOST
-PUBLIC_IP=$(curl -fsSL https://api.ipify.org || hostname -I | awk '{print $1}')
-PUBLIC_HOST="${PUBLIC_HOST:-$PUBLIC_IP}"
-ok "Endpoint público: $PUBLIC_HOST"
+# Endpoint público: detecta IP automaticamente (sem perguntar)
+PUBLIC_HOST="${PUBLIC_HOST:-}"
+if [ -z "$PUBLIC_HOST" ]; then
+  PUBLIC_HOST=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null \
+    || curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null \
+    || hostname -I | awk '{print $1}')
+fi
+[ -z "$PUBLIC_HOST" ] && { err "Não foi possível detectar IP público. Defina com: PUBLIC_HOST=seu.dominio.com"; exit 1; }
+ok "Endpoint público detectado: $PUBLIC_HOST"
 
-read -rp "📡 Lovable Cloud project ref (default: rzubqfexhptentnkjcaq): " PROJECT_REF
+# Project ref: já vem com default do projeto Lovable Cloud
 PROJECT_REF="${PROJECT_REF:-rzubqfexhptentnkjcaq}"
 
 INGEST_URL="https://${PROJECT_REF}.supabase.co/functions/v1/agent-ingest"
@@ -58,8 +69,8 @@ echo "  Metrics URL:  $METRICS_URL"
 echo "  VPN Sync URL: $VPN_SYNC_URL"
 echo "  Endpoint WG/OVPN: $PUBLIC_HOST"
 echo ""
-read -rp "Confirma e prossegue? (s/N): " CONFIRM
-[[ ! "$CONFIRM" =~ ^[sS]$ ]] && { warn "Cancelado"; exit 0; }
+log "Iniciando instalação automática em 3 segundos... (Ctrl+C pra cancelar)"
+sleep 3
 
 # ============================================================================
 # 1. Atualiza sistema + dependências base
