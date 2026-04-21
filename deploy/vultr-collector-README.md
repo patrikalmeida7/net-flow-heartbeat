@@ -39,16 +39,15 @@ SSH na VPS:
 ssh root@<IP_VULTR>
 ```
 
-Baixa e roda o instalador sincronizado com a branch `main`:
+Baixa e roda o instalador direto do NOC ISP (sem GitHub, servido por edge function pública):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/patrikalmeida7/ntflow/main/deploy/install-vultr-collector.sh | sudo bash
+curl -fsSL https://rzubqfexhptentnkjcaq.supabase.co/functions/v1/collector-installer | sudo bash
 ```
 
-Se quiser baixar antes de executar:
+Ou já passando o token sem prompt:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/patrikalmeida7/ntflow/main/deploy/install-vultr-collector.sh -o install-vultr-collector.sh
-chmod +x install-vultr-collector.sh
-sudo bash install-vultr-collector.sh
+INGEST_TOKEN="cole_o_AGENT_INGEST_TOKEN" \
+  sudo -E bash -c "curl -fsSL https://rzubqfexhptentnkjcaq.supabase.co/functions/v1/collector-installer | bash"
 ```
 
 Vai pedir:
