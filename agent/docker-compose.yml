@@ -1,0 +1,90 @@
+# =============================================================
+# NOC Agent — stack de produção
+# Sobe:
+#   - noc-agent  (container do agente coletor + VPN)
+#   - watchtower (atualiza noc-agent automaticamente quando
+#                 nova imagem é publicada no GHCR pelo CI)
+#
+# Uso:
+#   1. Edite .env (INGEST_TOKEN, IMAGE_TAG, etc)
+#   2. Coloque seu config.json em ./config/config.json
+#   3. docker compose up -d
+# =============================================================
+services:
+  noc-agent:
+    # Imagem buildada pelo GitHub Actions e publicada no GHCR.
+    # IMAGE_REF default aponta pro repo do projeto; sobrescreva
+    # no .env se for um fork.
+    image: ${IMAGE_REF:-ghcr.io/patrikalmeida7/net-flow-heartbeat-agent}:${IMAGE_TAG:-latest}
+    container_name: noc-agent
+    restart: always
+
+    # WireGuard / OpenVPN exigem manipular rotas e interfaces.
+    # NET_ADMIN é o mínimo necessário; --privileged seria exagero.
+    cap_add:
+      - NET_ADMIN
+    # WG escreve /dev/net/tun
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # Mesma rede do host pra alcançar MikroTiks por IP local
+    # (LAN do provedor) sem NAT extra. Comente se preferir bridge.
+    network_mode: host
+
+    environment:
+      # Caminho do config dentro do container
+      AGENT_CONFIG: /app/config/config.json
+      # VPN (opcional; se não setar, o loop fica desligado)
+      VPN_AGENT_TOKEN: ${VPN_AGENT_TOKEN:-}
+      VPN_SYNC_URL: ${VPN_SYNC_URL:-}
+      # Tag pra aparecer nos logs/health
+      AGENT_IMAGE_TAG: ${IMAGE_TAG:-latest}
+
+    volumes:
+      # config.json com ingest_token + lista de concentradores
+      - ./config:/app/config:ro
+      # Persistência das configs WG/OVPN geradas pelo agente
+      - wg-config:/etc/wireguard
+      - ovpn-config:/etc/openvpn
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # Marca usada pelo Watchtower pra saber quem atualizar
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # ----------------------------------------------------------
+  # Watchtower — verifica GHCR a cada 60s, baixa nova imagem
+  # se houver e recria o container do agente sem downtime
+  # significativo (~2-5s).
+  # ----------------------------------------------------------
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: noc-watchtower
+    restart: always
+    environment:
+      # Só atualiza containers com a label acima — não mexe
+      # em outros containers que possam estar na VPS (frontend,
+      # nginx, etc se algum dia rodarem em docker)
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"           # remove imagens antigas
+      WATCHTOWER_POLL_INTERVAL: "60"        # 60s
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_ROLLING_RESTART: "true"
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Se a imagem for privada, monte o auth do docker login:
+      # - /root/.docker/config.json:/config.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  wg-config:
+  ovpn-config:
