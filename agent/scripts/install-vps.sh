@@ -78,7 +78,7 @@ docker compose up -d
 
 # 5. Status
 sleep 3
-log "5/5 Status"
+log "5/6 Status"
 docker compose ps
 echo
 echo "Logs ao vivo:   docker logs -f noc-agent"
