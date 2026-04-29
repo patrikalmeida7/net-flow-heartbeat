@@ -55,15 +55,23 @@ if [ ! -f "$INSTALL_DIR/config/config.json" ]; then
 fi
 
 # 3. tun (WireGuard)
-log "3/5 Garantindo módulo tun"
+log "3/6 Garantindo módulo tun"
 modprobe tun 2>/dev/null || true
 if [ ! -c /dev/net/tun ]; then
   mkdir -p /dev/net
   mknod /dev/net/tun c 10 200 || true
 fi
 
+# 3b. Servidor WireGuard + UFW + noc-add-client (opcional)
+# Ative com:  SETUP_WG_SERVER=1 bash install-vps.sh
+if [ "${SETUP_WG_SERVER:-0}" = "1" ]; then
+  log "3b/6 Instalando servidor WireGuard + firewall + noc-add-client"
+  curl -fsSL "$REPO_RAW/scripts/setup-wg-server.sh" -o /tmp/setup-wg-server.sh
+  bash /tmp/setup-wg-server.sh
+fi
+
 # 4. Pull inicial e up
-log "4/5 Subindo stack"
+log "4/6 Subindo stack"
 cd "$INSTALL_DIR"
 docker compose pull
 docker compose up -d
