@@ -24,6 +24,7 @@ jobs:
           # Lista de arquivos essenciais que PRECISAM existir no repo
           REQUIRED_FILES=(
             "agent/scripts/install-vps.sh"
+            "agent/scripts/setup-wg-server.sh"
             "agent/scripts/check-agent.sh"
             "agent/scripts/healthcheck.sh"
             "agent/Dockerfile"
