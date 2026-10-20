@@ -23,6 +23,7 @@ export type Database = {
           last_ip: string | null
           last_seen_at: string | null
           nome: string
+          organization_id: string | null
           token_hash: string
           updated_at: string
           version: string | null
@@ -35,6 +36,7 @@ export type Database = {
           last_ip?: string | null
           last_seen_at?: string | null
           nome: string
+          organization_id?: string | null
           token_hash: string
           updated_at?: string
           version?: string | null
@@ -47,11 +49,20 @@ export type Database = {
           last_ip?: string | null
           last_seen_at?: string | null
           nome?: string
+          organization_id?: string | null
           token_hash?: string
           updated_at?: string
           version?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       alertas: {
         Row: {
@@ -122,6 +133,7 @@ export type Database = {
           modelo: string | null
           nome: string
           observacoes: string | null
+          organization_id: string | null
           status: Database["public"]["Enums"]["device_status"]
           ultima_coleta: string | null
           updated_at: string
@@ -141,6 +153,7 @@ export type Database = {
           modelo?: string | null
           nome: string
           observacoes?: string | null
+          organization_id?: string | null
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
           updated_at?: string
@@ -160,6 +173,7 @@ export type Database = {
           modelo?: string | null
           nome?: string
           observacoes?: string | null
+          organization_id?: string | null
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
           updated_at?: string
@@ -169,6 +183,13 @@ export type Database = {
           vpn_connection_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "concentradores_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "concentradores_vpn_connection_id_fkey"
             columns: ["vpn_connection_id"]
@@ -473,6 +494,144 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mikrotik_api_credentials: {
+        Row: {
+          agent_id: string | null
+          concentrador_id: string
+          created_at: string
+          enabled: boolean
+          host: string
+          id: string
+          last_error: string | null
+          last_poll_at: string | null
+          organization_id: string | null
+          password_encrypted: string | null
+          password_nonce: string | null
+          port: number
+          routeros_version: string
+          updated_at: string
+          use_tls: boolean
+          username: string
+        }
+        Insert: {
+          agent_id?: string | null
+          concentrador_id: string
+          created_at?: string
+          enabled?: boolean
+          host: string
+          id?: string
+          last_error?: string | null
+          last_poll_at?: string | null
+          organization_id?: string | null
+          password_encrypted?: string | null
+          password_nonce?: string | null
+          port?: number
+          routeros_version?: string
+          updated_at?: string
+          use_tls?: boolean
+          username: string
+        }
+        Update: {
+          agent_id?: string | null
+          concentrador_id?: string
+          created_at?: string
+          enabled?: boolean
+          host?: string
+          id?: string
+          last_error?: string | null
+          last_poll_at?: string | null
+          organization_id?: string | null
+          password_encrypted?: string | null
+          password_nonce?: string | null
+          port?: number
+          routeros_version?: string
+          updated_at?: string
+          use_tls?: boolean
+          username?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mikrotik_api_credentials_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mikrotik_api_credentials_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: true
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mikrotik_api_credentials_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_members: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          id: string
+          nome: string
+          plano: string
+          slug: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nome: string
+          plano?: string
+          slug?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nome?: string
+          plano?: string
+          slug?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       pppoe_sessions: {
         Row: {
@@ -975,6 +1134,7 @@ export type Database = {
         Args: { _credential_id: string }
         Returns: string
       }
+      get_mikrotik_api_password: { Args: { _id: string }; Returns: string }
       get_vpn_client_config: { Args: { _client_id: string }; Returns: string }
       get_vpn_secret: {
         Args: { _connection_id: string; _field: string }
@@ -987,9 +1147,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_org_member: {
+        Args: { _org_id: string; _user_id: string }
+        Returns: boolean
+      }
       purge_old_metric_samples: { Args: never; Returns: undefined }
       set_device_credential_password: {
         Args: { _credential_id: string; _password: string }
+        Returns: undefined
+      }
+      set_mikrotik_api_password: {
+        Args: { _id: string; _password: string }
         Returns: undefined
       }
       set_vpn_client_config: {
