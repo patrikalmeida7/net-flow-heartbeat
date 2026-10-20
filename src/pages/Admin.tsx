@@ -7,6 +7,7 @@ import AdminSnmp from "./admin/AdminSnmp";
 import AdminVpn from "./admin/AdminVpn";
 import AdminVpnClients from "./admin/AdminVpnClients";
 import AdminAgents from "./admin/AdminAgents";
+import AdminMikrotikApi from "./admin/AdminMikrotikApi";
 
 export default function Admin() {
   return (
@@ -22,6 +23,9 @@ export default function Admin() {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="concentradores" className="gap-2">
             <Server className="h-4 w-4" /> Concentradores
+          </TabsTrigger>
+          <TabsTrigger value="mk-api" className="gap-2">
+            <Cpu className="h-4 w-4" /> MikroTik API
           </TabsTrigger>
           <TabsTrigger value="rbs" className="gap-2">
             <Radio className="h-4 w-4" /> RBS / Torres
@@ -43,6 +47,7 @@ export default function Admin() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="concentradores"><AdminConcentradores /></TabsContent>
+        <TabsContent value="mk-api"><AdminMikrotikApi /></TabsContent>
         <TabsContent value="rbs"><AdminRBS /></TabsContent>
         <TabsContent value="snmp"><AdminSnmp /></TabsContent>
         <TabsContent value="vpn"><AdminVpn /></TabsContent>
