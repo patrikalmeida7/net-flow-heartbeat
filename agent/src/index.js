@@ -45,17 +45,50 @@ const {
   poll_interval_seconds = 30,
   snmp_poll_interval_seconds = 30,
   request_timeout_ms = 10000,
-  concentradores = [],
+  concentradores: staticConcentradores = [],
   rbs = [],
 } = config;
+
+// Lista viva: estáticos do config.json + dinâmicos vindos do painel (MIKROTIK_CONFIG_URL)
+let concentradores = [...staticConcentradores];
+const MK_CONFIG_URL = process.env.MIKROTIK_CONFIG_URL;
+const MK_TOKEN = process.env.VPN_AGENT_TOKEN;
 
 if (!ingest_url || !ingest_token) {
   console.error("[FATAL] config.json precisa de `ingest_url` e `ingest_token`.");
   process.exit(1);
 }
-if (concentradores.length === 0) {
-  console.error("[FATAL] Nenhum concentrador definido em config.json.");
+if (concentradores.length === 0 && !MK_CONFIG_URL) {
+  console.error("[FATAL] Nenhum concentrador em config.json e MIKROTIK_CONFIG_URL não definido.");
   process.exit(1);
+}
+
+async function refreshDynamicDevices() {
+  if (!MK_CONFIG_URL || !MK_TOKEN) return;
+  try {
+    const res = await fetch(MK_CONFIG_URL, { headers: { Authorization: `Bearer ${MK_TOKEN}` } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { devices = [] } = await res.json();
+    const dyn = devices.map((d) => ({
+      id: d.id, nome: d.nome, host: d.host, port: d.port, tls: d.tls,
+      user: d.user, password: d.password, version: d.version, dynamic: true,
+    }));
+    const dynHosts = new Set(dyn.map((d) => d.host));
+    concentradores = [...staticConcentradores.filter((c) => !dynHosts.has(c.host)), ...dyn];
+  } catch (e) {
+    console.log(`[${new Date().toISOString()}] [WARN] Falha ao buscar MikroTiks do painel: ${e.message}`);
+  }
+}
+
+async function reportDynamic(results) {
+  if (!MK_CONFIG_URL || !MK_TOKEN || !results.length) return;
+  try {
+    await fetch(MK_CONFIG_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${MK_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ results }),
+    });
+  } catch { /* noop */ }
 }
 
 // ---------- Logging ----------
@@ -70,7 +103,8 @@ async function collect(mk) {
     host: mk.host,
     user: mk.user,
     password: mk.password,
-    port: mk.port || 8728,
+    port: mk.port || (mk.tls ? 8729 : 8728),
+    tls: mk.tls ? { rejectUnauthorized: false } : undefined,
     timeout: Math.ceil(request_timeout_ms / 1000),
     keepalive: false,
   });
@@ -183,6 +217,7 @@ async function sendOfflineStatus(mk, errMsg) {
 
 // ---------- Loop RouterOS API (sessões PPPoE) ----------
 async function tickRouterOs() {
+  const results = [];
   await Promise.all(
     concentradores.map(async (mk) => {
       const label = mk.nome || mk.host;
@@ -193,12 +228,15 @@ async function tickRouterOs() {
           "INFO",
           `✓ ${label} | online=${payload.sessions.length} | new=${res.new_connections} | dis=${res.disconnections} | evt=${res.events}`,
         );
+        if (mk.dynamic) results.push({ id: mk.id, ok: true });
       } catch (err) {
         log("ERROR", `✗ ${label}:`, err.message);
+        if (mk.dynamic) results.push({ id: mk.id, ok: false, error: err.message });
         await sendOfflineStatus(mk, err.message);
       }
     }),
   );
+  await reportDynamic(results);
   // Mesmo se algum MK falhar individualmente, o loop em si está vivo
   touchHealth();
 }
@@ -246,6 +284,9 @@ log("INFO", `→ RouterOS API a cada ${poll_interval_seconds}s | SNMP a cada ${s
 log("INFO", `→ Ingest URL: ${ingest_url}`);
 if (metrics_ingest_url) log("INFO", `→ Metrics URL: ${metrics_ingest_url}`);
 
+await refreshDynamicDevices();
+setInterval(refreshDynamicDevices, 60_000);
+if (MK_CONFIG_URL) log("INFO", `→ MikroTiks dinâmicos do painel: ${concentradores.length} total`);
 await tickRouterOs();
 await tickSnmp();
 setInterval(tickRouterOs, poll_interval_seconds * 1000);
