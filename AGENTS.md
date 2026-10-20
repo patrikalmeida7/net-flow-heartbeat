@@ -1,0 +1,2 @@
+- Multi-tenant: tenant data carries `organization_id` (table `organizations` + `organization_members`, check via `is_org_member`); keeps the SaaS path open without rewriting tables later.
+- MikroTik API devices live in `mikrotik_api_credentials` (password encrypted, readable only by service role); collectors pull them from the `mikrotik-agent-config` function, so adding a device never requires editing config.json on the VPS.
