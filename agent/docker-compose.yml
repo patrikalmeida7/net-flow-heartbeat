@@ -39,6 +39,7 @@ services:
       # Provisionamento de clientes (opcional). Quando setado,
       # o agente roda noc-add-client automaticamente.
       CLIENTS_SYNC_URL: ${CLIENTS_SYNC_URL:-}
+      MIKROTIK_CONFIG_URL: ${MIKROTIK_CONFIG_URL:-}
       NOC_ADD_CLIENT_CMD: ${NOC_ADD_CLIENT_CMD:-noc-add-client}
       NOC_CLIENT_CONF_PATH: ${NOC_CLIENT_CONF_PATH:-/etc/wireguard/clients/{nome}.conf}
       CLIENTS_POLL_INTERVAL_MS: ${CLIENTS_POLL_INTERVAL_MS:-15000}
