@@ -48,14 +48,30 @@ Deno.serve(async (req) => {
 
   try {
     const expectedToken = Deno.env.get("AGENT_INGEST_TOKEN");
-    if (!expectedToken) {
-      return json({ error: "Server misconfigured" }, 500);
-    }
+    const bearer = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1];
+    const providedToken = (req.headers.get("x-agent-token") || bearer || "").trim();
+    if (!providedToken) return json({ error: "Unauthorized" }, 401);
 
-    const providedToken = req.headers.get("x-agent-token");
-    if (!providedToken || providedToken !== expectedToken) {
-      return json({ error: "Unauthorized" }, 401);
+    let authorized = !!expectedToken && providedToken === expectedToken;
+    let agentId: string | null = null;
+    if (!authorized) {
+      const sbAuth = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        { auth: { persistSession: false } },
+      );
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(providedToken));
+      const hash = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const { data: agent } = await sbAuth.from("agents").select("id, enabled")
+        .eq("token_hash", hash).maybeSingle();
+      if (agent?.enabled) {
+        authorized = true;
+        agentId = agent.id;
+        await sbAuth.from("agents").update({ last_seen_at: new Date().toISOString() }).eq("id", agent.id);
+      }
     }
+    if (!authorized) return json({ error: "Unauthorized" }, 401);
+    void agentId;
 
     const body = (await req.json()) as IngestPayload;
     if (!body?.concentrador?.host) {

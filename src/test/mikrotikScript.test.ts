@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { buildMikrotikScript } from "@/lib/mikrotikScript";
 
 describe("buildMikrotikScript", () => {
-  it("restringe a API à rede da VPN", () => {
+  it("restringe a API ao IP do coletor e à rede da VPN", () => {
     const s = buildMikrotikScript({ username: "noc", password: "x12345678", port: 8728, use_tls: false, routeros_version: "v6" });
-    expect(s).toContain("/ip service set api disabled=no port=8728 address=10.8.0.0/24");
+    expect(s).toContain("/ip service set api disabled=no port=8728 address=184.107.115.118/32,10.8.0.0/24");
   });
   it("usa api-ssl quando TLS ativo", () => {
     const s = buildMikrotikScript({ username: "noc", password: "x12345678", port: 8729, use_tls: true, routeros_version: "v7" });

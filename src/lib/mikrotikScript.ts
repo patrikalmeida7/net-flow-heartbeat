@@ -10,7 +10,8 @@ export interface MikrotikScriptInput {
 // Gera comandos RouterOS: grupo somente leitura + usuário API + serviço api/api-ssl
 // restrito à rede da VPN. Compatível com v6 e v7.
 export function buildMikrotikScript(i: MikrotikScriptInput): string {
-  const net = i.allowedNetwork || "10.8.0.0/24";
+  // Padrão: IP público do coletor central (VPS) + rede da VPN
+  const net = i.allowedNetwork || "184.107.115.118/32,10.8.0.0/24";
   const svc = i.use_tls ? "api-ssl" : "api";
   const pw = i.password.replace(/(["\\$])/g, "\\$1");
   const lines = [
