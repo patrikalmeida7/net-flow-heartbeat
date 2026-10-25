@@ -49,10 +49,10 @@ export default function Analise() {
       </div>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <MetricCard label="Clientes online" value={data?.online ?? 0} icon={Users} />
-        <MetricCard label="Quedas 24h" value={data?.totalQuedas ?? 0} icon={WifiOff} />
-        <MetricCard label="Clientes instáveis (3+)" value={data?.instaveis ?? 0} icon={Activity} />
-        <MetricCard label="Maior consumo" value={data?.topBanda[0] ? formatBytes(data.topBanda[0].total) : "—"} icon={Download} />
+        <MetricCard label="Clientes online" value={data?.online ?? 0} icon={<Users className="h-4 w-4" />} tone="online" />
+        <MetricCard label="Quedas 24h" value={data?.totalQuedas ?? 0} icon={<WifiOff className="h-4 w-4" />} tone="offline" />
+        <MetricCard label="Clientes instáveis (3+)" value={data?.instaveis ?? 0} icon={<Activity className="h-4 w-4" />} tone="warning" />
+        <MetricCard label="Maior consumo" value={data?.topBanda[0] ? formatBytes(data.topBanda[0].total) : "—"} icon={<Download className="h-4 w-4" />} tone="primary" />
       </div>
 
       <Card className="p-4">
