@@ -261,6 +261,90 @@ export type Database = {
           },
         ]
       }
+      custom_reports: {
+        Row: {
+          concentrador_id: string | null
+          condition_key: string | null
+          condition_threshold: number
+          condition_window_minutes: number
+          cooldown_minutes: number
+          created_at: string
+          days: number[]
+          enabled: boolean
+          fixed_times: string[]
+          id: string
+          interval_minutes: number
+          last_error: string | null
+          last_sent_at: string | null
+          last_success: boolean | null
+          nome: string
+          organization_id: string | null
+          phones: string[]
+          template: string
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          concentrador_id?: string | null
+          condition_key?: string | null
+          condition_threshold?: number
+          condition_window_minutes?: number
+          cooldown_minutes?: number
+          created_at?: string
+          days?: number[]
+          enabled?: boolean
+          fixed_times?: string[]
+          id?: string
+          interval_minutes?: number
+          last_error?: string | null
+          last_sent_at?: string | null
+          last_success?: boolean | null
+          nome: string
+          organization_id?: string | null
+          phones?: string[]
+          template?: string
+          trigger_type?: string
+          updated_at?: string
+        }
+        Update: {
+          concentrador_id?: string | null
+          condition_key?: string | null
+          condition_threshold?: number
+          condition_window_minutes?: number
+          cooldown_minutes?: number
+          created_at?: string
+          days?: number[]
+          enabled?: boolean
+          fixed_times?: string[]
+          id?: string
+          interval_minutes?: number
+          last_error?: string | null
+          last_sent_at?: string | null
+          last_success?: boolean | null
+          nome?: string
+          organization_id?: string | null
+          phones?: string[]
+          template?: string
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_reports_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "custom_reports_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_credentials: {
         Row: {
           concentrador_id: string | null
