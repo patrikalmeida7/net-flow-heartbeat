@@ -6,6 +6,7 @@ import { buildVars, render, checkCondition, isDue, type Report } from "./reports
 import {
   allAccepted, applyResults, episodeKey, exhausted, normalizePhones, offlineBeyondTolerance, pendingPhones,
   type DeliveryRow, type SendResult,
+  recoveryCandidates, healthSummary, fmtBahia, FRESH_MS, type UpEvent, type ConcState,
 } from "./logic.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
