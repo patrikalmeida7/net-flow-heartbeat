@@ -26,16 +26,27 @@ Deno.serve(async (req) => {
 
     if (req.method === "GET") {
       const { data, error } = await sb.from("mikrotik_api_credentials")
-        .select("id, host, port, use_tls, username, routeros_version, concentradores(nome)")
+        .select("id, host, port, use_tls, username, routeros_version, concentrador_id, concentradores(nome)")
         .eq("agent_id", agent.id).eq("enabled", true);
       if (error) throw error;
       const devices = [];
       for (const d of data ?? []) {
         const { data: pw } = await sb.rpc("get_mikrotik_api_password", { _id: d.id });
         if (!pw) continue;
+        // deno-lint-ignore no-explicit-any
+        const cid = (d as any).concentrador_id;
+        const { data: sn } = cid
+          ? await sb.from("snmp_credentials").select("*").eq("concentrador_id", cid).eq("enabled", true).maybeSingle()
+          : { data: null };
         devices.push({
           id: d.id, host: d.host, port: d.port, tls: d.use_tls, user: d.username, password: pw,
           version: d.routeros_version,
+          snmp: sn ? {
+            enabled: true, version: sn.version, port: sn.port, community: sn.community,
+            username: sn.username, auth_proto: sn.auth_proto, auth_password: sn.auth_password,
+            priv_proto: sn.priv_proto, priv_password: sn.priv_password,
+            timeout_ms: sn.timeout_ms, retries: sn.retries,
+          } : undefined,
           // deno-lint-ignore no-explicit-any
           nome: (d as any).concentradores?.nome ?? d.host,
         });
