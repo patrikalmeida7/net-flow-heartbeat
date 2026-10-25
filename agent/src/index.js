@@ -244,6 +244,7 @@ async function sendOfflineStatus(mk, errMsg) {
         usuarios_online: 0,
       },
       sessions: [],
+      error: String(errMsg || "").slice(0, 300),
       collected_at: new Date().toISOString(),
     });
     log("WARN", `${mk.host} marcado como OFFLINE (${errMsg})`);
@@ -284,30 +285,50 @@ async function pushRouterOsInterfaces(mk) {
 }
 
 // ---------- Loop RouterOS API (sessões PPPoE) ----------
+// conn.write() do node-routeros não tem timeout próprio: uma sessão TLS "meio-morta"
+// pendura a coleta para sempre (heartbeat continua, mas nada chega ao agent-ingest).
+function withTimeout(promise, ms, label) {
+  let t;
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${label}: timeout ${ms}ms`)), ms); }),
+  ]).finally(() => clearTimeout(t));
+}
+
+let routerOsBusy = false;
 async function tickRouterOs() {
+  if (routerOsBusy) { log("WARN", "Ciclo RouterOS anterior ainda em andamento — pulando"); return; }
+  routerOsBusy = true;
   const results = [];
-  await Promise.all(
-    concentradores.map(async (mk) => {
-      const label = mk.nome || mk.host;
-      try {
-        const payload = await collect(mk);
-        const res = await send(payload);
-        pushRouterOsInterfaces(mk).catch((e) => log("WARN", `Interfaces ✗ ${label}: ${e.message}`));
-        log(
-          "INFO",
-          `✓ ${label} | online=${payload.sessions.length} | new=${res.new_connections} | dis=${res.disconnections} | evt=${res.events}`,
-        );
-        if (mk.dynamic) results.push({ id: mk.id, ok: true });
-      } catch (err) {
-        log("ERROR", `✗ ${label}:`, err.message);
-        if (mk.dynamic) results.push({ id: mk.id, ok: false, error: err.message });
-        await sendOfflineStatus(mk, err.message);
-      }
-    }),
-  );
-  await reportDynamic(results);
-  // Mesmo se algum MK falhar individualmente, o loop em si está vivo
-  touchHealth();
+  try {
+    await Promise.all(
+      concentradores.map(async (mk) => {
+        const label = mk.nome || mk.host;
+        try {
+          const payload = await withTimeout(collect(mk), request_timeout_ms * 2, `coleta ${label}`);
+          const res = await send(payload);
+          if (res.write_errors?.length) log("ERROR", `agent-ingest gravou com erros (${label}):`, res.write_errors.join(" | "));
+          withTimeout(pushRouterOsInterfaces(mk), request_timeout_ms * 2, `interfaces ${label}`)
+            .catch((e) => { dropConn(mk); log("WARN", `Interfaces ✗ ${label}: ${e.message}`); });
+          log(
+            "INFO",
+            `✓ ${label} | online=${payload.sessions.length} | new=${res.new_connections} | dis=${res.disconnections} | evt=${res.events}`,
+          );
+          if (mk.dynamic) results.push({ id: mk.id, ok: true });
+        } catch (err) {
+          dropConn(mk);
+          log("ERROR", `✗ ${label}:`, err.message);
+          if (mk.dynamic) results.push({ id: mk.id, ok: false, error: err.message });
+          await sendOfflineStatus(mk, err.message);
+        }
+      }),
+    );
+    await reportDynamic(results);
+    // Saúde só é renovada se ao menos um equipamento foi coletado com sucesso
+    if (!results.length || results.some((r) => r.ok)) touchHealth();
+  } finally {
+    routerOsBusy = false;
+  }
 }
 
 // ---------- Loop SNMP (concentradores + RBS) ----------
