@@ -43,6 +43,13 @@
       "when": 1792937850573,
       "tag": "0005_custom_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792945670742,
+      "tag": "0006_device_interfaces_full_unique",
+      "breakpoints": true
     }
   ]
 }
