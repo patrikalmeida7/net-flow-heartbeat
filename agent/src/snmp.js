@@ -76,18 +76,37 @@ function getAsync(session, oids) {
 function subtreeAsync(session, oid, maxRows = 500) {
   return new Promise((resolve, reject) => {
     const out = [];
-    const optionalTimeout = setTimeout(() => resolve(out), 6000);
+    let settled = false;
+    const finish = (partialReason = null, err = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(optionalTimeout);
+      if (err) return reject(err);
+      if (partialReason) {
+        out.partial = { oid, reason: partialReason, rows: out.length };
+        console.warn(`[SNMP] Descoberta parcial: ${oid}, ${partialReason}, ${out.length} linhas`);
+      }
+      resolve(out);
+    };
+    const optionalTimeout = setTimeout(() => finish("timeout"), 6000);
     session.subtree(
       oid,
       20, // maxRepetitions
       (varbinds) => {
+        // net-snmp stops the walk when the feed callback returns true.
+        // A timed-out walk stops at its next response; never append late rows.
+        if (settled) return true;
         for (const vb of varbinds) {
           if (snmp.isVarbindError(vb)) continue;
           out.push(vb);
-          if (out.length >= maxRows) return false;
+          if (out.length >= maxRows) {
+            finish("row_limit");
+            return true;
+          }
         }
+        return false;
       },
-      (err) => { clearTimeout(optionalTimeout); err ? reject(err) : resolve(out); },
+      (err) => finish(null, err),
     );
   });
 }
@@ -209,7 +228,11 @@ export async function collectSnmp(target, cfg) {
       });
     }
 
-    return { snmp_valid: true, uptime_seconds, cpu_load, memory_used_pct, interfaces };
+    const partial_walks = [cpuRows, memTypes, memSizes, memUsed,
+      ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs]
+      .filter((rows) => rows.partial).map((rows) => rows.partial);
+    return { snmp_valid: true, uptime_seconds, cpu_load, memory_used_pct, interfaces,
+      snmp_partial: partial_walks.length > 0, partial_walks };
     })()]);
   } finally {
     clearTimeout(timer);
@@ -224,9 +247,18 @@ function bufToStr(v) {
 }
 function toNum(v) {
   if (v == null) return null;
-  // net-snmp pode retornar BigInt para Counter64
-  if (typeof v === "bigint") return Number(v);
-  if (Buffer.isBuffer(v)) return Number(v.toString());
+  // Counter64 is unsigned binary big-endian, never decimal UTF-8.
+  if (Buffer.isBuffer(v)) {
+    if (v.length !== 8) return null;
+    v = v.readBigUInt64BE(0);
+  }
+  if (typeof v === "bigint") {
+    // Numbers cannot represent larger counters exactly: omit rather than
+    // introduce rounded counters into traffic deltas. Zero remains valid.
+    if (v < 0n || v > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
