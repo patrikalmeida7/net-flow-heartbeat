@@ -94,11 +94,13 @@ async function deliver(s: Settings, ruleKey: string, dedupe: string, text: strin
 async function collectAlerts(rules: Map<string, Rule>) {
   const out: { key: string; dedupe: string; text: string; cooldown: number; critical?: boolean }[] = [];
   const on = (k: string) => { const r = rules.get(k); return r && r.enabled && r.send_whatsapp ? r : null; };
-  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta");
+  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta,offline_since");
   for (const c of concs ?? []) {
     let r = on("concentrador_down");
-    const tolOk = !r?.tolerance_minutes || !c.ultima_coleta || Date.now() - new Date(c.ultima_coleta).getTime() >= r.tolerance_minutes * 60000;
-    if (r && c.status === "offline" && tolOk) out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} parou de responder.` });
+    if (r && offlineBeyondTolerance(c, r.tolerance_minutes)) {
+      const desde = c.offline_since ? new Date(c.offline_since).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : "?";
+      out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}:${c.offline_since ?? ""}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} sem resposta desde ${desde}.` });
+    }
     r = on("cpu_high");
     if (r && (c.cpu_load ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `cpu:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *CPU alta*\n${c.nome}: ${c.cpu_load}% (limite ${r.threshold}%)` });
     r = on("memory_high");
@@ -106,8 +108,11 @@ async function collectAlerts(rules: Map<string, Rule>) {
   }
   let r = on("online_drop");
   if (r && r.threshold > 0) {
-    const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true);
-    if ((count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
+    // Só avalia com dados frescos: coletor parado não vira "clientes abaixo do limite"
+    const fresh = new Date(Date.now() - 5 * 60000).toISOString();
+    const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh);
+    const anyFresh = (concs ?? []).some((c) => c.ultima_coleta && c.ultima_coleta >= fresh);
+    if (anyFresh && (count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
   }
   r = on("mass_disconnect");
   if (r) {
@@ -125,11 +130,19 @@ async function collectAlerts(rules: Map<string, Rule>) {
   }
   r = on("client_unstable");
   if (r) {
+    // Só quedas individuais; agrupadas por concentrador+login para não misturar logins iguais
     const since = new Date(Date.now() - 86400000).toISOString();
-    const { data } = await sb.from("eventos").select("username").eq("tipo", "disconnect").gte("created_at", since).limit(10000);
-    const by = new Map<string, number>();
-    for (const e of data ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
-    for (const [u, n] of by) if (n >= r.threshold) out.push({ key: r.rule_key, dedupe: `unstable:${u}`, cooldown: r.cooldown_minutes, text: `⚠️ *Cliente instável*\n${u}: ${n} quedas nas últimas 24h.` });
+    const { data } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", since).limit(50000);
+    const by = new Map<string, { u: string; cid: string; n: number }>();
+    for (const e of data ?? []) if (e.username) {
+      const k = `${e.concentrador_id ?? "?"}|${e.username}`;
+      const cur = by.get(k) ?? { u: e.username, cid: e.concentrador_id ?? "?", n: 0 };
+      cur.n++; by.set(k, cur);
+    }
+    for (const v of by.values()) if (v.n >= r.threshold) {
+      const nome = (concs ?? []).find((c) => c.id === v.cid)?.nome ?? "";
+      out.push({ key: r.rule_key, dedupe: `unstable:${v.cid}:${v.u}`, cooldown: r.cooldown_minutes, text: `⚠️ *Cliente instável*\n${v.u}${nome ? ` (${nome})` : ""}: ${v.n} quedas individuais nas últimas 24h.` });
+    }
   }
   r = on("system_alerts");
   if (r) {
@@ -142,24 +155,31 @@ async function collectAlerts(rules: Map<string, Rule>) {
 
 async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário NOC") {
   const inc = (k: string) => rules.get(k)?.enabled && rules.get(k)?.include_in_daily;
-  const since = new Date(Date.now() - 86400000).toISOString();
-  const [{ count: online }, { data: drops }, { data: concs }, { data: alerts }] = await Promise.all([
-    sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true),
-    sb.from("eventos").select("username").eq("tipo", "disconnect").gte("created_at", since).limit(10000),
-    sb.from("concentradores").select("nome,status,cpu_load,memory_used_pct,usuarios_online"),
-    sb.from("alertas").select("id").gte("created_at", since),
+  const [{ data: summary }, { data: an }, { data: concs }, { count: alerts }] = await Promise.all([
+    sb.rpc("dashboard_summary"),
+    sb.rpc("analise_24h"),
+    sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta"),
+    sb.from("alertas").select("id", { count: "exact", head: true }).gte("created_at", new Date(Date.now() - 86400000).toISOString()),
   ]);
-  const by = new Map<string, number>();
-  for (const e of drops ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
-  const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const sm = (summary ?? {}) as Record<string, number>;
+  const a = (an ?? {}) as { individual_drops?: number; mass_incidents?: number; mass_affected?: number; top?: { concentrador_id: string; username: string; n: number }[] };
   const lim = rules.get("client_unstable")?.threshold ?? 5;
-  const lines = [`📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "", `👥 Clientes online: *${online ?? 0}*`, `📉 Quedas em 24h: *${drops?.length ?? 0}*`, `🔔 Alertas em 24h: *${alerts?.length ?? 0}*`];
-  if (inc("client_unstable")) lines.push(`⚠️ Clientes instáveis (${lim}+ quedas): *${[...by.values()].filter((n) => n >= lim).length}*`);
+  const top = (a.top ?? []).slice(0, 5);
+  const nomeC = (id: string) => (concs ?? []).find((c) => c.id === id)?.nome ?? "";
+  const stale = Number(sm.online_stale ?? 0);
+  const lines = [
+    `📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "",
+    `👥 Clientes online: *${sm.online_now ?? 0}*${stale ? ` (+${stale} sem atualização recente)` : ""}`,
+    `📉 Quedas individuais 24h: *${a.individual_drops ?? 0}*`,
+    `🚨 Quedas em massa 24h: *${a.mass_incidents ?? 0}* (${a.mass_affected ?? 0} clientes afetados)`,
+    `🔔 Alertas em 24h: *${alerts ?? 0}*`,
+  ];
+  if (inc("client_unstable")) lines.push(`⚠️ Clientes com ${lim}+ quedas individuais: *${(a.top ?? []).filter((t) => t.n >= lim).length}${(a.top ?? []).length >= 10 ? "+" : ""}*`);
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
     for (const c of concs ?? []) lines.push(`${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.usuarios_online} online`);
   }
-  if (top.length) { lines.push("", "*Top quedas*"); top.forEach(([u, n], i) => lines.push(`${i + 1}. ${u} — ${n}`)); }
+  if (top.length) { lines.push("", "*Top quedas individuais*"); top.forEach((t, i) => lines.push(`${i + 1}. ${t.username}${nomeC(t.concentrador_id) ? ` (${nomeC(t.concentrador_id)})` : ""} — ${t.n}`)); }
   return lines.join("\n");
 }
 
