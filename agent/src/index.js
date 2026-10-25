@@ -42,12 +42,13 @@ const {
   ingest_url,
   metrics_ingest_url,
   ingest_token,
-  poll_interval_seconds = 30,
+  poll_interval_seconds: cfgPoll = 10,
   snmp_poll_interval_seconds = 30,
   request_timeout_ms = 10000,
   concentradores: staticConcentradores = [],
   rbs = [],
 } = config;
+const poll_interval_seconds = Number(process.env.POLL_INTERVAL_SECONDS) || Math.min(cfgPoll, 10);
 
 // Lista viva: estáticos do config.json + dinâmicos vindos do painel (MIKROTIK_CONFIG_URL)
 let concentradores = [...staticConcentradores];
@@ -98,7 +99,21 @@ function log(level, ...args) {
 }
 
 // ---------- Coleta de um MikroTik ----------
-async function collect(mk) {
+// Pool de conexões persistentes: 1 sessão autenticada por MikroTik, reaproveitada
+// entre ciclos (evita handshake TLS + login a cada coleta). Reconecta sozinho se cair.
+const pool = new Map();
+function poolKey(mk) { return `${mk.host}:${mk.port}:${mk.user}:${mk.password}:${mk.tls ? 1 : 0}`; }
+function dropConn(mk) {
+  const k = poolKey(mk);
+  const c = pool.get(k);
+  pool.delete(k);
+  if (c) { try { c.close(); } catch { /* noop */ } }
+}
+async function getConn(mk) {
+  const k = poolKey(mk);
+  const cached = pool.get(k);
+  if (cached && cached.connected) return cached;
+  if (cached) dropConn(mk);
   const conn = new RouterOSAPI({
     host: mk.host,
     user: mk.user,
@@ -106,10 +121,18 @@ async function collect(mk) {
     port: mk.port || (mk.tls ? 8729 : 8728),
     tls: mk.tls ? { rejectUnauthorized: false } : undefined,
     timeout: Math.ceil(request_timeout_ms / 1000),
-    keepalive: false,
+    keepalive: true,
   });
-
+  conn.on("error", () => pool.delete(k));
+  conn.on("close", () => pool.delete(k));
   await conn.connect();
+  pool.set(k, conn);
+  log("INFO", `🔗 Sessão persistente aberta com ${mk.nome || mk.host}`);
+  return conn;
+}
+
+async function collect(mk) {
+  const conn = await getConn(mk);
 
   try {
     const [resource, identity, active] = await Promise.all([
@@ -152,8 +175,9 @@ async function collect(mk) {
       sessions,
       collected_at: new Date().toISOString(),
     };
-  } finally {
-    try { conn.close(); } catch { /* noop */ }
+  } catch (e) {
+    dropConn(mk);
+    throw e;
   }
 }
 
