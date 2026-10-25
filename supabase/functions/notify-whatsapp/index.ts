@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "run");
-    if (!["run", "test", "daily", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test"].includes(action)) return json({ error: "ação inválida" }, 400);
+    if (!["run", "test", "daily", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test", "health_preview", "health_send", "simulate"].includes(action)) return json({ error: "ação inválida" }, 400);
 
     if (action !== "run") {
       const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
@@ -298,6 +298,15 @@ Deno.serve(async (req) => {
     }
 
 
+    // Prévia/simulação: nunca envia WhatsApp
+    if (action === "health_preview") return json(await buildHealth());
+    if (action === "simulate") return json({ texts: simulateTexts(), note: "Simulação: nada foi enviado" });
+    if (action === "health_send") {
+      const h = await buildHealth();
+      await sendText(s, h.text);
+      await sb.from("notification_log").insert({ rule_key: "health_manual", message: h.text });
+      return json({ ok: true, state: h.state });
+    }
     if (action === "test") {
       await sendText(s, "✅ Teste do NOC: WhatsApp conectado e funcionando.");
       await sb.from("notification_log").insert({ rule_key: "test", message: "Mensagem de teste" });
