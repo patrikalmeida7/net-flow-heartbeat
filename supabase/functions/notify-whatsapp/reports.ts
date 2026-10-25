@@ -91,8 +91,7 @@ export async function checkCondition(sb: any, r: Report): Promise<{ value: numbe
     }
     case "concentrador_down": {
       const { data } = await (cid ? sb.from("concentradores").select("id,status,offline_since").eq("id", cid) : sb.from("concentradores").select("id,status,offline_since"));
-      const tol = Math.max(0, r.condition_window_minutes || 0);
-      const off = (data ?? []).find((c: any) => c.status === "offline" && (!tol || (c.offline_since && Date.now() - new Date(c.offline_since).getTime() >= tol * 60000)));
+      const off = (data ?? []).find((c: any) => c.status === "offline");
       return off ? { value: 1, concentrador_id: off.id } : null;
     }
     case "cpu_high":
