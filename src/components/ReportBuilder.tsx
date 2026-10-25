@@ -88,8 +88,13 @@ export function ReportBuilder({ isAdmin }: { isAdmin: boolean }) {
     if (!edit) return;
     if (!edit.nome.trim()) return toast.error("Dê um nome ao relatório");
     if (!edit.template.trim()) return toast.error("Escreva a mensagem");
-    const { id, last_sent_at: _a, last_success: _b, last_error: _c, ...row } = edit as Rep & Record<string, unknown>;
-    delete (row as Record<string, unknown>).created_at; delete (row as Record<string, unknown>).updated_at; delete (row as Record<string, unknown>).organization_id;
+    const e = edit;
+    const row = {
+      nome: e.nome.trim(), enabled: e.enabled, trigger_type: e.trigger_type, interval_minutes: e.interval_minutes, fixed_times: e.fixed_times,
+      days: e.days, condition_key: e.condition_key, condition_threshold: e.condition_threshold, condition_window_minutes: e.condition_window_minutes,
+      cooldown_minutes: e.cooldown_minutes, concentrador_id: e.concentrador_id, phones: e.phones, template: e.template,
+    };
+    const id = e.id;
     const { error } = id ? await supabase.from("custom_reports").update(row).eq("id", id) : await supabase.from("custom_reports").insert(row);
     if (error) return toast.error(error.message);
     toast.success("Relatório salvo");
