@@ -73,6 +73,7 @@ async function refreshDynamicDevices() {
     const dyn = devices.map((d) => ({
       id: d.id, nome: d.nome, host: d.host, port: d.port, tls: d.tls,
       user: d.user, password: d.password, version: d.version, dynamic: true,
+      snmp: d.snmp || undefined,
     }));
     const dynHosts = new Set(dyn.map((d) => d.host));
     concentradores = [...staticConcentradores.filter((c) => !dynHosts.has(c.host)), ...dyn];
@@ -135,11 +136,18 @@ async function collect(mk) {
   const conn = await getConn(mk);
 
   try {
-    const [resource, identity, active] = await Promise.all([
+    const [resource, identity, active, ifaces] = await Promise.all([
       conn.write("/system/resource/print"),
       conn.write("/system/identity/print"),
       conn.write("/ppp/active/print"),
+      conn.write("/interface/print", ["?type=pppoe-in", "=.proplist=name,rx-byte,tx-byte"]).catch(() => []),
     ]);
+    // Interface dinâmica do PPPoE se chama "<pppoe-usuario>": tx = download do cliente, rx = upload
+    const bytesByUser = new Map();
+    for (const i of ifaces) {
+      const m = /^<pppoe-(.+)>$/.exec(i.name || "");
+      if (m) bytesByUser.set(m[1], { down: Number(i["tx-byte"]) || 0, up: Number(i["rx-byte"]) || 0 });
+    }
 
     const r = resource[0] || {};
     const id = identity[0] || {};
@@ -154,8 +162,8 @@ async function collect(mk) {
       caller_id: s["caller-id"] || null,
       interface: s["service"] || s["interface"] || null,
       uptime_seconds: parseRouterOSUptime(s.uptime),
-      bytes_in: null, // /ppp/active não traz bytes; precisa de /interface monitor por sessão
-      bytes_out: null,
+      bytes_in: bytesByUser.get(s.name)?.down ?? null,
+      bytes_out: bytesByUser.get(s.name)?.up ?? null,
       online: true,
     }));
 
