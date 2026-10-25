@@ -1,4 +1,5 @@
 # Roadmap — NOC-ISP
+- [x] Implementar persistência SNMP em lote/idempotente, timeout de envio e contrato dos contadores (revisão externa pelo proprietário)
 - [x] Aplicar política SNMP principal e fotografias API agendadas, preservando histórico
 - [x] Dashboard real, saúde da coleta por equipamento, último estado conhecido
 - [x] Métricas: Sem dados / erro / retry, frescor

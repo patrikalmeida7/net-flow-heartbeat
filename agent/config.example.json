@@ -5,6 +5,7 @@
   "poll_interval_seconds": 30,
   "snmp_poll_interval_seconds": 30,
   "request_timeout_ms": 10000,
+  "ingest_timeout_ms": 45000,
   "concentradores": [
     {
       "nome": "BRAS-01",
