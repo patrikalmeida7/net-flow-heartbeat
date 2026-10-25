@@ -64,6 +64,62 @@ export type Database = {
           },
         ]
       }
+      alert_rules: {
+        Row: {
+          cooldown_minutes: number
+          created_at: string
+          descricao: string | null
+          enabled: boolean
+          id: string
+          include_in_daily: boolean
+          label: string
+          organization_id: string | null
+          rule_key: string
+          send_whatsapp: boolean
+          threshold: number
+          threshold_label: string | null
+          updated_at: string
+        }
+        Insert: {
+          cooldown_minutes?: number
+          created_at?: string
+          descricao?: string | null
+          enabled?: boolean
+          id?: string
+          include_in_daily?: boolean
+          label: string
+          organization_id?: string | null
+          rule_key: string
+          send_whatsapp?: boolean
+          threshold?: number
+          threshold_label?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cooldown_minutes?: number
+          created_at?: string
+          descricao?: string | null
+          enabled?: boolean
+          id?: string
+          include_in_daily?: boolean
+          label?: string
+          organization_id?: string | null
+          rule_key?: string
+          send_whatsapp?: boolean
+          threshold?: number
+          threshold_label?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_rules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       alertas: {
         Row: {
           concentrador_id: string | null
@@ -567,6 +623,89 @@ export type Database = {
           },
           {
             foreignKeyName: "mikrotik_api_credentials_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_log: {
+        Row: {
+          created_at: string
+          dedupe_key: string | null
+          error: string | null
+          id: string
+          message: string
+          rule_key: string | null
+          success: boolean
+        }
+        Insert: {
+          created_at?: string
+          dedupe_key?: string | null
+          error?: string | null
+          id?: string
+          message: string
+          rule_key?: string | null
+          success?: boolean
+        }
+        Update: {
+          created_at?: string
+          dedupe_key?: string | null
+          error?: string | null
+          id?: string
+          message?: string
+          rule_key?: string | null
+          success?: boolean
+        }
+        Relationships: []
+      }
+      notification_settings: {
+        Row: {
+          api_token: string | null
+          api_url: string | null
+          created_at: string
+          daily_report_enabled: boolean
+          daily_report_hour: number
+          enabled: boolean
+          id: string
+          instance: string | null
+          last_daily_sent_on: string | null
+          organization_id: string | null
+          phones: string[]
+          updated_at: string
+        }
+        Insert: {
+          api_token?: string | null
+          api_url?: string | null
+          created_at?: string
+          daily_report_enabled?: boolean
+          daily_report_hour?: number
+          enabled?: boolean
+          id?: string
+          instance?: string | null
+          last_daily_sent_on?: string | null
+          organization_id?: string | null
+          phones?: string[]
+          updated_at?: string
+        }
+        Update: {
+          api_token?: string | null
+          api_url?: string | null
+          created_at?: string
+          daily_report_enabled?: boolean
+          daily_report_hour?: number
+          enabled?: boolean
+          id?: string
+          instance?: string | null
+          last_daily_sent_on?: string | null
+          organization_id?: string | null
+          phones?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_settings_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
