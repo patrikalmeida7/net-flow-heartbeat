@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "run");
-    if (!["run", "test", "daily"].includes(action)) return json({ error: "ação inválida" }, 400);
+    if (!["run", "test", "daily", "wa_status", "wa_connect", "wa_logout"].includes(action)) return json({ error: "ação inválida" }, 400);
 
     if (action !== "run") {
       const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
@@ -130,6 +130,41 @@ Deno.serve(async (req) => {
 
     const { data: s } = await sb.from("notification_settings").select("*").limit(1).maybeSingle();
     if (!s) return json({ error: "Configure o MultixZap primeiro" }, 400);
+    if (action.startsWith("wa_")) {
+      if (!s.api_url || !s.api_token || !s.instance) return json({ error: "Preencha endereço, token e instância e clique em Salvar" }, 400);
+      const base = s.api_url.replace(/\/+$/, "");
+      const inst = encodeURIComponent(s.instance);
+      const h = { "Content-Type": "application/json", apikey: s.api_token, Authorization: `Bearer ${s.api_token}` };
+      const call = async (path: string, method = "GET", b?: unknown) => {
+        const r = await fetch(`${base}${path}`, { method, headers: h, body: b ? JSON.stringify(b) : undefined });
+        const t = await r.text(); let j: any = {}; try { j = JSON.parse(t); } catch { j = { raw: t.slice(0, 200) }; }
+        return { ok: r.ok, status: r.status, j };
+      };
+      if (action === "wa_status") {
+        const r = await call(`/instance/connectionState/${inst}`);
+        if (r.status === 404) return json({ state: "missing" });
+        if (!r.ok) return json({ error: `HTTP ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}` }, 502);
+        return json({ state: r.j?.instance?.state ?? r.j?.state ?? "unknown" });
+      }
+      if (action === "wa_logout") {
+        await call(`/instance/logout/${inst}`, "DELETE");
+        return json({ ok: true });
+      }
+      // wa_connect: cria instância se não existir e retorna QR / código
+      const st = await call(`/instance/connectionState/${inst}`);
+      if (st.status === 404) {
+        const c = await call(`/instance/create`, "POST", { instanceName: s.instance, qrcode: true, integration: "WHATSAPP-BAILEYS" });
+        if (!c.ok) return json({ error: `Não foi possível criar a instância: HTTP ${c.status}` }, 502);
+        const q = c.j?.qrcode;
+        if (q?.base64) return json({ qr: q.base64, pairingCode: q.pairingCode ?? null });
+      }
+      const num = String(body.number ?? "").replace(/\D/g, "");
+      const r = await call(`/instance/connect/${inst}${num ? `?number=${num}` : ""}`);
+      if (!r.ok) return json({ error: `HTTP ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}` }, 502);
+      if (r.j?.instance?.state === "open") return json({ state: "open" });
+      return json({ qr: r.j?.base64 ?? null, pairingCode: r.j?.pairingCode ?? null, code: r.j?.code ?? null });
+    }
+
     const { data: rr } = await sb.from("alert_rules").select("*");
     const rules = new Map<string, Rule>((rr ?? []).map((r: Rule) => [r.rule_key, r]));
 

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { timeAgo } from "@/lib/format";
 import { toast } from "sonner";
+import { WhatsAppConnect } from "@/components/WhatsAppConnect";
 
 type Settings = {
   id?: string; enabled: boolean; api_url: string; api_token: string; instance: string;
@@ -139,6 +140,7 @@ export default function Relatorios() {
             <label className="flex items-center gap-2 text-sm"><Switch checked={s.daily_report_enabled} onCheckedChange={(v) => setS({ ...s, daily_report_enabled: v })} />Relatório diário automático</label>
             <div className="flex items-center gap-2"><Label>Horário (0-23h)</Label><Input type="number" className="w-20" value={s.daily_report_hour} onChange={(e) => setS({ ...s, daily_report_hour: Number(e.target.value) })} /></div>
           </div>
+          <div className="mt-4"><WhatsAppConnect ready={!!(settingsQ.data?.api_url && settingsQ.data?.api_token && settingsQ.data?.instance)} /></div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button onClick={save} disabled={busy}>Salvar</Button>
             <Button variant="secondary" onClick={() => call("test")} disabled={busy || !s.id}><Send className="mr-1 h-4 w-4" />Enviar teste</Button>
