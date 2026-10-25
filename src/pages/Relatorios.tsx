@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { timeAgo } from "@/lib/format";
 import { toast } from "sonner";
 import { WhatsAppConnect } from "@/components/WhatsAppConnect";
+import { ReportBuilder } from "@/components/ReportBuilder";
 
 type Settings = {
   id?: string; enabled: boolean; api_url: string; api_token: string; instance: string; phones: string[];
@@ -145,13 +146,16 @@ export default function Relatorios() {
         ))}
       </div>
 
-      <Tabs defaultValue="alertas">
+      <Tabs defaultValue="meus">
         <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="meus"><FileText className="mr-1 h-4 w-4" />Meus relatórios</TabsTrigger>
           <TabsTrigger value="alertas"><Bell className="mr-1 h-4 w-4" />Alertas</TabsTrigger>
           <TabsTrigger value="agenda"><CalendarClock className="mr-1 h-4 w-4" />Agendamento</TabsTrigger>
           {isAdmin && <TabsTrigger value="conexao"><MessageCircle className="mr-1 h-4 w-4" />Conexão e contatos</TabsTrigger>}
           <TabsTrigger value="historico"><History className="mr-1 h-4 w-4" />Histórico</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="meus"><ReportBuilder isAdmin={isAdmin} /></TabsContent>
 
         <TabsContent value="alertas" className="space-y-3">
           {rules.map((r) => (
