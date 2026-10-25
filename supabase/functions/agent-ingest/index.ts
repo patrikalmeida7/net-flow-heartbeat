@@ -302,6 +302,19 @@ Deno.serve(async (req) => {
       if (error) throw error;
     }
 
+    // 4) Snapshot de conexões (balde de 5 min, 1 por concentrador; ignora falhas de coleta)
+    if (!collectionFailure) {
+      const b = new Date(Math.floor(Date.now() / 300_000) * 300_000).toISOString();
+      await supabase.from("connection_snapshots").upsert(
+        { concentrador_id: concentradorId, bucket_at: b, online_count: incomingOnline.size },
+        { onConflict: "concentrador_id,bucket_at" },
+      );
+      if (Math.random() < 0.01) {
+        await supabase.from("connection_snapshots").delete()
+          .lt("bucket_at", new Date(Date.now() - 30 * 86400_000).toISOString());
+      }
+    }
+
     return json({
       ok: true,
       concentrador_id: concentradorId,

@@ -69,8 +69,10 @@ async function collectAlerts(rules: Map<string, Rule>) {
     const win = Math.max(1, r.window_minutes ?? 5);
     const since = new Date(Date.now() - win * 60000).toISOString();
     const { data } = await sb.from("eventos").select("concentrador_id").eq("tipo", "disconnect").gte("created_at", since);
+    const { data: mass } = await sb.from("eventos").select("concentrador_id, metadata").eq("tipo", "device_down").eq("metadata->>scope", "mass").gte("created_at", since);
     const by = new Map<string, number>();
     for (const e of data ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + 1);
+    for (const e of mass ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + Number((e.metadata as any)?.count ?? 0));
     for (const [cid, n] of by) if (n >= r.threshold) {
       const nome = (concs ?? []).find((c) => c.id === cid)?.nome ?? "concentrador";
       out.push({ key: r.rule_key, critical: true, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos ${win} min em ${nome}.` });
