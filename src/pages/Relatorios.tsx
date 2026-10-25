@@ -110,6 +110,17 @@ export default function Relatorios() {
     qc.invalidateQueries({ queryKey: ["notif-log"] });
   };
 
+  const [preview, setPreview] = useState<string | null>(null);
+  const previewCall = async (action: "health_preview" | "simulate" | "health_send") => {
+    if (action === "health_send" && !confirm("Enviar o resumo de saúde agora pelo WhatsApp?")) return;
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke("notify-whatsapp", { body: { action } });
+    setBusy(false);
+    if (error || data?.error) return toast.error(data?.error ?? error?.message ?? "Falha");
+    if (action === "health_send") { toast.success("Resumo enviado (aceito pela API)"); qc.invalidateQueries({ queryKey: ["notif-log"] }); return; }
+    setPreview(action === "simulate" ? `SIMULAÇÃO — nada foi enviado\n\n${data.texts.join("\n\n— depois —\n\n")}` : `PRÉVIA — nada foi enviado\n\n${data.text}`);
+  };
+
   const updateRule = async (id: string, patch: Partial<Record<"enabled" | "send_whatsapp" | "include_in_daily", boolean> & Record<"threshold" | "cooldown_minutes" | "window_minutes" | "tolerance_minutes", number>>) => {
     const { error } = await supabase.from("alert_rules").update(patch).eq("id", id);
     if (error) return toast.error(error.message);
@@ -225,6 +236,17 @@ export default function Relatorios() {
               <div className="flex flex-wrap justify-between gap-2">
                 <Button variant="outline" onClick={() => call("daily")} disabled={busy || !s.id}><FileText className="mr-1 h-4 w-4" />Enviar relatório agora</Button>
                 <Button onClick={save} disabled={busy}>Salvar alterações</Button>
+              </div>
+            )}
+            {isAdmin && (
+              <div className="space-y-2 rounded-md border border-border p-4">
+                <p className="text-sm font-medium">Resumo de saúde e simulação</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => previewCall("health_preview")} disabled={busy}>Prévia do resumo de saúde</Button>
+                  <Button variant="outline" size="sm" onClick={() => previewCall("simulate")} disabled={busy}>Simular offline → recuperado</Button>
+                  <Button variant="outline" size="sm" onClick={() => previewCall("health_send")} disabled={busy || !s.id}>Enviar resumo agora</Button>
+                </div>
+                {preview && <pre className="whitespace-pre-wrap rounded bg-muted p-3 text-xs">{preview}</pre>}
               </div>
             )}
           </Card>
