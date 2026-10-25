@@ -298,13 +298,14 @@ Deno.serve(async (req) => {
           descricao: `Concentrador ${c.nome ?? c.host} ficou offline`,
         });
         // Cria alerta crítico
-        await supabase.from("alertas").insert({
+        const { error: oErr } = await supabase.from("alertas").insert({
           titulo: `Concentrador offline: ${c.nome ?? c.host}`,
-          descricao: `Sem resposta da API RouterOS em ${c.host}`,
+          descricao: `Sem resposta da API RouterOS em ${c.host}${body.error ? ` (${body.error})` : ""}`,
           severidade: "critical",
           status: "active",
           concentrador_id: concentradorId,
         });
+        if (oErr) alertErrors.push(`alerta offline: ${oErr.message}`);
       } else if (previousStatus === "offline" && newStatus === "online") {
         events.push({
           tipo: "device_up",
