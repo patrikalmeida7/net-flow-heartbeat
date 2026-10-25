@@ -34,7 +34,7 @@ const KEY_BASE = ["metricas"] as const;
 
 async function fetchInterfaces() {
   const [ifaces, concs, rbs] = await Promise.all([
-    supabase.from("device_interfaces").select("*").order("if_index"),
+    supabase.from("device_interfaces").select("*").eq("counter_source","snmp").order("if_index"),
     supabase.from("concentradores").select("id, nome"),
     supabase.from("rbs").select("id, nome"),
   ]);
@@ -66,7 +66,7 @@ async function fetchDeviceSeries(opts: { concentrador_id?: string; rbs_id?: stri
   let q = supabase
     .from("metric_samples")
     .select("collected_at, kind, value")
-    .in("kind", ["cpu_load", "memory_used_pct"])
+    .eq("source","snmp").in("kind", ["cpu_load", "memory_used_pct"])
     .gte("collected_at", since)
     .order("collected_at", { ascending: true })
     .limit(2000);
@@ -133,7 +133,8 @@ export default function Metricas() {
           out_bps: null,
         });
       }
-      const row = m.get(key)!;
+      const row = m.get(key);
+      if (!row) continue;
       if (s.kind === "if_in_bps") row.in_bps = s.value;
       if (s.kind === "if_out_bps") row.out_bps = s.value;
     }
@@ -152,7 +153,8 @@ export default function Metricas() {
           mem: null,
         });
       }
-      const row = m.get(s.collected_at)!;
+      const row = m.get(s.collected_at);
+      if (!row) continue;
       if (s.kind === "cpu_load") row.cpu = s.value;
       if (s.kind === "memory_used_pct") row.mem = s.value;
     }
@@ -190,7 +192,7 @@ export default function Metricas() {
       )}
       {!ifq.isError && !ifq.isLoading && ifaces.length === 0 && (
         <Card className="p-4 text-sm text-muted-foreground">
-          Nenhuma interface recebida ainda do coletor (SNMP ou API). Tráfego aparece aqui quando a primeira amostra chegar.
+          Nenhuma interface recebida ainda do coletor SNMP. Tráfego aparece aqui quando a primeira amostra chegar.
         </Card>
       )}
       {selected && (

@@ -4,7 +4,7 @@ export type HealthState = "ok" | "delayed" | "collector_down" | "device_down" | 
 export const DELAY_MS = 2 * 60_000;
 export const DOWN_MS = 10 * 60_000;
 /** Sessão "online" sem atualização há mais que isso = último estado conhecido, não online atual. */
-export const SESSION_STALE_MS = 5 * 60_000;
+export const SESSION_STALE_MS = 6 * 60 * 60_000;
 
 export function collectionHealth(input: {
   lastCollectAt: string | null;
@@ -41,6 +41,6 @@ export const healthLabel: Record<HealthState, string> = {
   ok: "Coleta em dia",
   delayed: "Dados atrasados",
   collector_down: "Falha de coleta",
-  device_down: "Equipamento indisponível",
+  device_down: "Monitoramento indisponível",
   no_data: "Sem dados de coleta",
 };

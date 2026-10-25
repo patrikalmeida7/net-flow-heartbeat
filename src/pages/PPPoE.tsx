@@ -45,7 +45,7 @@ export default function PPPoE() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("pppoe_summary");
       if (error) throw error;
-      return data as { clients: number; session_records: number; online_fresh: number; online_stale: number };
+      return data as { clients: number; session_records: number; online_fresh: number | null; online_stale: number; snapshot_online: number | null; last_sync: string | null };
     },
   });
 
@@ -78,7 +78,7 @@ export default function PPPoE() {
         <h1 className="text-2xl font-semibold tracking-tight">Usuários PPPoE</h1>
         <p className="text-sm text-muted-foreground">
           {s
-            ? `${s.clients.toLocaleString("pt-BR")} clientes únicos · ${s.session_records.toLocaleString("pt-BR")} registros de sessão no histórico · ${s.online_fresh} online confirmados${s.online_stale ? ` · ${s.online_stale} sem atualização há +5 min` : ""}`
+            ? `${s.clients.toLocaleString("pt-BR")} clientes únicos · ${s.session_records.toLocaleString("pt-BR")} registros de sessão no histórico · ${s.snapshot_online ?? "Sem dados"} presentes nas fotografias API · última sincronização ${timeAgo(s.last_sync)} · 00/06/12/18 America/Bahia`
             : summary.isError ? "Não foi possível carregar os totais." : "Carregando totais…"}
         </p>
       </div>
@@ -87,8 +87,8 @@ export default function PPPoE() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <Tabs value={tab} onValueChange={(v) => { setTab(v as typeof tab); setPage(0); }}>
             <TabsList>
-              <TabsTrigger value="online">Online</TabsTrigger>
-              <TabsTrigger value="offline">Offline</TabsTrigger>
+              <TabsTrigger value="online">Presente na fotografia</TabsTrigger>
+              <TabsTrigger value="offline">Ausente na fotografia</TabsTrigger>
               <TabsTrigger value="all">Todos</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -109,10 +109,10 @@ export default function PPPoE() {
               <TableHead>Concentrador</TableHead>
               <SortHead k="ip" label="IP" />
               <SortHead k="uptime" label="Uptime" right />
-              <SortHead k="drops" label="Quedas 24h" right />
+              <SortHead k="drops" label="Quedas registradas 24h" right />
               <SortHead k="traffic" label="↓ Down" right />
               <TableHead className="text-right">↑ Up</TableHead>
-              <TableHead>Atualizado</TableHead>
+              <TableHead>Última sincronização</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -130,14 +130,14 @@ export default function PPPoE() {
                   <TableCell className="text-right font-mono text-xs">
                     <span className={n >= 3 ? "rounded-full bg-status-offline/15 px-2 py-0.5 font-semibold text-status-offline" : n > 0 ? "text-foreground" : "text-muted-foreground"}>{n}</span>
                   </TableCell>
-                  <TableCell className="text-right font-mono text-xs">{r.bytes_in ? formatBytes(r.bytes_in) : "Sem dados"}</TableCell>
-                  <TableCell className="text-right font-mono text-xs">{r.bytes_out ? formatBytes(r.bytes_out) : "Sem dados"}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">{r.bytes_in != null ? formatBytes(r.bytes_in) : "Sem dados"}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">{r.bytes_out != null ? formatBytes(r.bytes_out) : "Sem dados"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{timeAgo(r.ultima_atualizacao)}</TableCell>
                   <TableCell>
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
                       r.stale ? "bg-status-warning/15 text-status-warning" : r.online ? "bg-status-online/15 text-status-online" : "bg-status-offline/15 text-status-offline"}`}>
                       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {r.stale ? "Último estado: online" : r.online ? "Online" : "Offline"}
+                      {r.online ? "Presente na fotografia API" : "Ausente na fotografia API"}
                     </span>
                   </TableCell>
                 </TableRow>
