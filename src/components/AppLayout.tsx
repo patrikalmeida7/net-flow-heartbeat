@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, MessageCircle, BarChart3, Gauge, History, LogO
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { CollectionHealthBadge } from "@/components/CollectionHealthBadge";
 
 const nav = [
   { to: "/", label: "Dashboard NOC", icon: Gauge, end: true },
@@ -100,10 +101,7 @@ export default function AppLayout() {
       {/* Main */}
       <div className="flex min-h-screen flex-1 flex-col">
         <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur md:px-6">
-          <div className="flex items-center gap-3">
-            <span className="hidden h-2 w-2 animate-pulse rounded-full bg-status-online md:inline-block" />
-            <span className="text-sm font-medium">Monitoramento ativo</span>
-          </div>
+          <CollectionHealthBadge />
           <LiveClock />
         </header>
         <main className="flex-1 p-4 md:p-6">
