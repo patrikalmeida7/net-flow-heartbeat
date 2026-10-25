@@ -53,7 +53,7 @@ const poll_interval_seconds = Number(process.env.POLL_INTERVAL_SECONDS) || Math.
 const metrics_ingest_url =
   cfgMetricsUrl || process.env.METRICS_INGEST_URL || (ingest_url ? ingest_url.replace(/agent-ingest\/?$/, "metrics-ingest") : null);
 // Interfaces físicas/lógicas via API RouterOS (sem SNMP) — throttle em 30s
-const lastIfPush = new Map();
+let snmpTargets = [];
 
 // Lista viva: estáticos do config.json + dinâmicos vindos do painel (MIKROTIK_CONFIG_URL)
 let concentradores = [...staticConcentradores];
@@ -74,9 +74,10 @@ async function refreshDynamicDevices() {
   try {
     const res = await fetch(MK_CONFIG_URL, { headers: { Authorization: `Bearer ${MK_TOKEN}` } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { devices = [] } = await res.json();
+    const { devices = [], snmp_targets = [] } = await res.json();
+    snmpTargets = snmp_targets;
     const dyn = devices.map((d) => ({
-      id: d.id, nome: d.nome, host: d.host, port: d.port, tls: d.tls,
+      id: d.id, concentrador_id: d.concentrador_id, nome: d.nome, host: d.host, port: d.port, tls: d.tls,
       user: d.user, password: d.password, version: d.version, dynamic: true,
       snmp: d.snmp || undefined,
     }));
@@ -127,12 +128,12 @@ async function getConn(mk) {
     port: mk.port || (mk.tls ? 8729 : 8728),
     tls: mk.tls ? { rejectUnauthorized: false } : undefined,
     timeout: Math.ceil(request_timeout_ms / 1000),
-    keepalive: true,
+    keepalive: false,
   });
   conn.on("error", () => pool.delete(k));
   conn.on("close", () => pool.delete(k));
-  await conn.connect();
   pool.set(k, conn);
+  await conn.connect();
   log("INFO", `🔗 Sessão persistente aberta com ${mk.nome || mk.host}`);
   return conn;
 }
@@ -186,6 +187,8 @@ async function collect(mk) {
         usuarios_online: sessions.length,
       },
       sessions,
+      source: "routeros_snapshot",
+      concentrador_id: mk.concentrador_id,
       collected_at: new Date().toISOString(),
     };
   } catch (e) {
@@ -216,7 +219,7 @@ async function postJson(url, payload) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-agent-token": ingest_token,
+        "x-agent-token": MK_TOKEN || ingest_token,
       },
       body: JSON.stringify(payload),
       signal: ctrl.signal,
@@ -244,6 +247,8 @@ async function sendOfflineStatus(mk, errMsg) {
         usuarios_online: 0,
       },
       sessions: [],
+      source: "routeros_snapshot",
+      concentrador_id: mk.concentrador_id,
       error: String(errMsg || "").slice(0, 300),
       collected_at: new Date().toISOString(),
     });
@@ -256,9 +261,6 @@ async function sendOfflineStatus(mk, errMsg) {
 // ---------- Interfaces via API RouterOS → metrics-ingest ----------
 async function pushRouterOsInterfaces(mk) {
   if (!metrics_ingest_url) return;
-  const now = Date.now();
-  if (now - (lastIfPush.get(mk.host) || 0) < snmp_poll_interval_seconds * 1000) return;
-  lastIfPush.set(mk.host, now);
   const conn = await getConn(mk);
   const list = await conn.write("/interface/print", [
     "=.proplist=.id,name,type,comment,running,disabled,rx-byte,tx-byte,rx-error,tx-error",
@@ -266,7 +268,7 @@ async function pushRouterOsInterfaces(mk) {
   const interfaces = list
     .filter((i) => i.type !== "pppoe-in" && !/^<.*>$/.test(i.name || ""))
     .map((i) => ({
-      if_index: parseInt(String(i[".id"] || "*0").replace("*", ""), 16) || 0,
+      routeros_id: i[".id"],
       if_name: i.name,
       if_descr: i.type || i.name,
       if_alias: i.comment || null,
@@ -279,7 +281,8 @@ async function pushRouterOsInterfaces(mk) {
     }));
   await postJson(metrics_ingest_url, {
     collected_at: new Date().toISOString(),
-    devices: [{ concentrador_host: mk.host, interfaces }],
+    source: "routeros_snapshot",
+    devices: [{ concentrador_id: mk.concentrador_id, concentrador_host: mk.host, interfaces }],
   });
   log("INFO", `📈 ${mk.nome || mk.host} | ${interfaces.length} interfaces enviadas`);
 }
@@ -302,13 +305,13 @@ async function tickRouterOs() {
   const results = [];
   try {
     await Promise.all(
-      concentradores.map(async (mk) => {
+      concentradores.filter((mk) => mk.user && mk.password).map(async (mk) => {
         const label = mk.nome || mk.host;
         try {
           const payload = await withTimeout(collect(mk), request_timeout_ms * 2, `coleta ${label}`);
           const res = await send(payload);
           if (res.write_errors?.length) log("ERROR", `agent-ingest gravou com erros (${label}):`, res.write_errors.join(" | "));
-          withTimeout(pushRouterOsInterfaces(mk), request_timeout_ms * 2, `interfaces ${label}`)
+          await withTimeout(pushRouterOsInterfaces(mk), request_timeout_ms * 2, `interfaces ${label}`)
             .catch((e) => { dropConn(mk); log("WARN", `Interfaces ✗ ${label}: ${e.message}`); });
           log(
             "INFO",
@@ -320,12 +323,12 @@ async function tickRouterOs() {
           log("ERROR", `✗ ${label}:`, err.message);
           if (mk.dynamic) results.push({ id: mk.id, ok: false, error: err.message });
           await sendOfflineStatus(mk, err.message);
-        }
+        } finally { dropConn(mk); }
       }),
     );
     await reportDynamic(results);
     // Saúde só é renovada se ao menos um equipamento foi coletado com sucesso
-    if (!results.length || results.some((r) => r.ok)) touchHealth();
+    // API never renews primary SNMP health.
   } finally {
     routerOsBusy = false;
   }
@@ -339,21 +342,17 @@ async function tickSnmp() {
   try { await tickSnmpInner(); } finally { snmpBusy = false; }
 }
 async function tickSnmpInner() {
-  const targets = [
-    ...concentradores
-      .filter((c) => c.snmp?.enabled)
-      .map((c) => ({ kind: "concentrador", host: c.host, nome: c.nome, snmp: c.snmp })),
-    ...rbs
-      .filter((r) => r.snmp?.enabled)
-      .map((r) => ({ kind: "rbs", host: r.host, nome: r.nome, snmp: r.snmp })),
+  const targets = MK_CONFIG_URL ? snmpTargets : [
+    ...concentradores.filter((c) => c.snmp?.enabled).map((c) => ({kind: "concentrador", host: c.host, snmp: c.snmp})),
+    ...rbs.filter((r) => r.snmp?.enabled).map((r) => ({kind: "rbs", host: r.host, snmp: r.snmp})),
   ];
   if (!targets.length) return;
 
   const devices = await Promise.all(
     targets.map(async (t) => {
-      const base = t.kind === "concentrador" ? { concentrador_host: t.host } : { rbs_host: t.host };
+      const base = t.kind === "concentrador" ? { concentrador_host: t.host, concentrador_id: t.target_id } : { rbs_host: t.host, rbs_id: t.target_id };
       try {
-        const data = await withTimeout(collectSnmp(t.host, t.snmp), 30000, `SNMP ${t.nome || t.host}`);
+        const data = await collectSnmp(t.host, t.snmp);
         return { ...base, ...data };
       } catch (err) {
         log("ERROR", `SNMP ✗ ${t.nome || t.host}: ${err.message}`);
@@ -364,30 +363,41 @@ async function tickSnmpInner() {
 
   try {
     const res = await postJson(metrics_ingest_url, {
+      source: "snmp",
       collected_at: new Date().toISOString(),
       devices,
     });
     log("INFO", `SNMP ✓ devices=${devices.length} samples=${res.samples_inserted} ifaces=${res.interfaces_upserted}`);
     if (res.errors?.length) log("ERROR", "metrics-ingest gravou com erros:", res.errors.slice(0, 5).join(" | "));
     if (res.devices_without_data) log("WARN", `SNMP: ${res.devices_without_data} equipamento(s) responderam sem métricas`);
-    touchHealth();
+    if (res.ok && devices.some((d) => d.snmp_valid && !d.snmp_error)) touchHealth();
   } catch (err) {
     log("ERROR", "SNMP envio falhou:", err.message);
   }
 }
 
 log("INFO", `🚀 Agente iniciado. ${concentradores.length} concentrador(es), ${rbs.length} RBS.`);
-log("INFO", `→ RouterOS API a cada ${poll_interval_seconds}s | SNMP a cada ${snmp_poll_interval_seconds}s`);
+log("INFO", "→ API 00/06/12/18 America/Bahia (sem catch-up); SNMP principal 30s");
 log("INFO", `→ Ingest URL: ${ingest_url}`);
 if (metrics_ingest_url) log("INFO", `→ Metrics URL: ${metrics_ingest_url}`);
 
 await refreshDynamicDevices();
 setInterval(refreshDynamicDevices, 60_000);
 if (MK_CONFIG_URL) log("INFO", `→ MikroTiks dinâmicos do painel: ${concentradores.length} total`);
-await tickRouterOs();
+// No API collection at startup. Slots are claimed durably in the backend.
 await tickSnmp();
-setInterval(tickRouterOs, poll_interval_seconds * 1000);
-setInterval(tickSnmp, snmp_poll_interval_seconds * 1000);
+async function scheduledApi() {
+  if (!MK_CONFIG_URL || !MK_TOKEN || routerOsBusy) return;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {timeZone: "America/Bahia", hour: "2-digit", minute: "2-digit", hourCycle: "h23"}).formatToParts(new Date()).map((p) => [p.type,p.value]));
+  if (!["00","06","12","18"].includes(parts.hour) || parts.minute !== "00") return;
+  try {
+    const r = await fetch(MK_CONFIG_URL, {method: "POST", headers: {Authorization: `Bearer ${MK_TOKEN}`, "Content-Type": "application/json"}, body: JSON.stringify({action: "claim_api_slot"}), signal: AbortSignal.timeout(request_timeout_ms)});
+    if (!r.ok) throw new Error(`slot HTTP ${r.status}`);
+    if ((await r.json()).claimed) await tickRouterOs();
+  } catch (e) { log("ERROR", "API slot:", e.message); }
+}
+setInterval(scheduledApi, 15000);
+setInterval(tickSnmp, 30000);
 
 // VPN loop (opcional — só sobe se as variáveis de ambiente estiverem definidas)
 if (process.env.VPN_AGENT_TOKEN && process.env.VPN_SYNC_URL) {
