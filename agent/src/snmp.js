@@ -30,6 +30,8 @@ const OID = {
   ifAlias: "1.3.6.1.2.1.31.1.1.1.18",
   ifHCInOctets: "1.3.6.1.2.1.31.1.1.1.6",
   ifHCOutOctets: "1.3.6.1.2.1.31.1.1.1.10",
+  ifInOctets: "1.3.6.1.2.1.2.2.1.10",
+  ifOutOctets: "1.3.6.1.2.1.2.2.1.16",
 };
 
 const OPER_STATUS = { 1: "up", 2: "down", 3: "testing", 4: "unknown", 5: "dormant", 6: "notPresent", 7: "lowerLayerDown" };
@@ -84,7 +86,7 @@ function subtreeAsync(session, oid, maxRows = 500) {
       if (err) return reject(err);
       if (partialReason) {
         out.partial = { oid, reason: partialReason, rows: out.length };
-        console.warn(`[SNMP] Descoberta parcial: ${oid}, ${partialReason}, ${out.length} linhas`);
+
       }
       resolve(out);
     };
@@ -97,7 +99,10 @@ function subtreeAsync(session, oid, maxRows = 500) {
         // A timed-out walk stops at its next response; never append late rows.
         if (settled) return true;
         for (const vb of varbinds) {
-          if (snmp.isVarbindError(vb)) continue;
+          if (snmp.isVarbindError(vb)) {
+            if (vb.type === snmp.ObjectType.NoSuchObject || vb.type === snmp.ObjectType.NoSuchInstance) out.unsupported = true;
+            continue;
+          }
           out.push(vb);
           if (out.length >= maxRows) {
             finish("row_limit");
@@ -113,6 +118,18 @@ function subtreeAsync(session, oid, maxRows = 500) {
 
 function tailIndex(oid, prefix) {
   return oid.startsWith(prefix + ".") ? oid.slice(prefix.length + 1) : null;
+}
+
+// Preserve failed walks as partial: never mistake timeout/error for lack of HC support.
+async function counterWalk(session, oid) {
+  try { return await subtreeAsync(session, oid); }
+  catch (err) {
+    const rows = [];
+    const unsupported = /NoSuchObject|NoSuchInstance/i.test(String(err.message));
+    if (unsupported) rows.unsupported = true;
+    else rows.partial = { oid, reason: "query_error", rows: 0 };
+    return rows;
+  }
 }
 
 // ---------- Coleta principal ----------
@@ -171,7 +188,7 @@ export async function collectSnmp(target, cfg) {
     }
 
     // Interfaces (em paralelo)
-    const [ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs] =
+    const [ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs, in32Rows, out32Rows] =
       await Promise.all([
         subtreeAsync(session, OID.ifName).catch(() => []),
         subtreeAsync(session, OID.ifAlias).catch(() => []),
@@ -180,8 +197,8 @@ export async function collectSnmp(target, cfg) {
         subtreeAsync(session, OID.ifAdminStatus).catch(() => []),
         subtreeAsync(session, OID.ifInErrors).catch(() => []),
         subtreeAsync(session, OID.ifOutErrors).catch(() => []),
-        subtreeAsync(session, OID.ifHCInOctets).catch(() => []),
-        subtreeAsync(session, OID.ifHCOutOctets).catch(() => []),
+        counterWalk(session, OID.ifHCInOctets),
+        counterWalk(session, OID.ifHCOutOctets),
         subtreeAsync(session, OID.ifDescr).catch(() => []),
       ]);
 
@@ -205,7 +222,31 @@ export async function collectSnmp(target, cfg) {
     const inOctByIdx = indexed(ifInOct, OID.ifHCInOctets);
     const outOctByIdx = indexed(ifOutOct, OID.ifHCOutOctets);
 
-    const allIdx = new Set([...nameByIdx.keys(), ...descrByIdx.keys(), ...inOctByIdx.keys()]);
+    const allIdx = new Set([...nameByIdx.keys(), ...descrByIdx.keys(), ...operByIdx.keys(), ...inOctByIdx.keys(), ...outOctByIdx.keys()]);
+    // Completed HC walks missing an interface establish that HC is unavailable
+    // for that index. Failed/partial walks and invalid HC values NEVER fall back.
+    const needs32 = (rows, map) => !rows.partial && [...allIdx].some((idx) => !map.has(idx));
+    const [in32Rows, out32Rows] = await Promise.all([
+      needs32(ifInOct, inOctByIdx) ? counterWalk(session, OID.ifInOctets) : [],
+      needs32(ifOutOct, outOctByIdx) ? counterWalk(session, OID.ifOutOctets) : [],
+    ]);
+    const in32ByIdx = indexed(in32Rows, OID.ifInOctets);
+    const out32ByIdx = indexed(out32Rows, OID.ifOutOctets);
+    const counter_diagnostics = { received: 0, absent: 0, invalid: 0, fallback32: 0, partial: 0 };
+    function counter(idx, hcRows, hcMap, lowRows, lowMap) {
+      let raw = hcMap.get(idx), bits = 64;
+      if (!hcMap.has(idx) && !hcRows.partial && lowMap.has(idx)) {
+        raw = lowMap.get(idx); bits = 32;
+      }
+      if (raw == null) { counter_diagnostics.absent++; return { value: null, bits: null }; }
+      counter_diagnostics.received++;
+      const value = toNum(raw);
+      if (value == null || (bits === 32 && value > 0xffffffff)) {
+        counter_diagnostics.invalid++; return { value: null, bits: null };
+      }
+      if (bits === 32) counter_diagnostics.fallback32++;
+      return { value, bits };
+    }
     const interfaces = [];
     for (const idx of allIdx) {
       const if_index = Number(idx);
@@ -213,6 +254,8 @@ export async function collectSnmp(target, cfg) {
       const oper = Number(operByIdx.get(idx));
       const admin = Number(adminByIdx.get(idx));
       const speedMbps = Number(speedByIdx.get(idx) ?? 0);
+      const incoming = counter(idx, ifInOct, inOctByIdx, in32Rows, in32ByIdx);
+      const outgoing = counter(idx, ifOutOct, outOctByIdx, out32Rows, out32ByIdx);
       interfaces.push({
         if_index,
         if_name: bufToStr(nameByIdx.get(idx)) ?? null,
@@ -221,17 +264,20 @@ export async function collectSnmp(target, cfg) {
         if_speed_bps: speedMbps > 0 ? speedMbps * 1_000_000 : null,
         oper_status: OPER_STATUS[oper] ?? null,
         admin_status: ADMIN_STATUS[admin] ?? null,
-        in_octets: toNum(inOctByIdx.get(idx)),
-        out_octets: toNum(outOctByIdx.get(idx)),
+        in_octets: incoming.value,
+        out_octets: outgoing.value,
+        in_counter_bits: incoming.bits,
+        out_counter_bits: outgoing.bits,
         in_errors: toNum(inErrByIdx.get(idx)),
         out_errors: toNum(outErrByIdx.get(idx)),
       });
     }
 
     const partial_walks = [cpuRows, memTypes, memSizes, memUsed,
-      ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs]
+      ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs, in32Rows, out32Rows]
       .filter((rows) => rows.partial).map((rows) => rows.partial);
-    return { snmp_valid: true, uptime_seconds, cpu_load, memory_used_pct, interfaces,
+    counter_diagnostics.partial = partial_walks.length;
+    return { counter_diagnostics, snmp_valid: true, uptime_seconds, cpu_load, memory_used_pct, interfaces,
       snmp_partial: partial_walks.length > 0, partial_walks };
     })()]);
   } finally {
@@ -249,8 +295,13 @@ function toNum(v) {
   if (v == null) return null;
   // Counter64 is unsigned binary big-endian, never decimal UTF-8.
   if (Buffer.isBuffer(v)) {
-    if (v.length !== 8) return null;
-    v = v.readBigUInt64BE(0);
+    if (v.length < 1 || v.length > 8) return null;
+    if (v.length === 8) v = v.readBigUInt64BE(0);
+    else {
+      let unsigned = 0n;
+      for (const byte of v) unsigned = (unsigned << 8n) | BigInt(byte);
+      v = unsigned;
+    }
   }
   if (typeof v === "bigint") {
     // Numbers cannot represent larger counters exactly: omit rather than
@@ -260,5 +311,5 @@ function toNum(v) {
     return Number.isFinite(n) ? n : null;
   }
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
