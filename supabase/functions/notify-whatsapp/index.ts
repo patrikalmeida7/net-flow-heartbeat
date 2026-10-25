@@ -2,6 +2,7 @@
 // Ações: "run" (cron, a cada minuto), "test" e "daily" (somente admin).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { buildVars, render, checkCondition, isDue, type Report } from "./reports.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const json = (b: unknown, s = 200) =>
@@ -120,7 +121,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "run");
-    if (!["run", "test", "daily", "wa_status", "wa_connect", "wa_logout"].includes(action)) return json({ error: "ação inválida" }, 400);
+    if (!["run", "test", "daily", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test"].includes(action)) return json({ error: "ação inválida" }, 400);
 
     if (action !== "run") {
       const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
@@ -170,6 +171,18 @@ Deno.serve(async (req) => {
     const { data: rr } = await sb.from("alert_rules").select("*");
     const rules = new Map<string, Rule>((rr ?? []).map((r: Rule) => [r.rule_key, r]));
 
+    if (action === "report_preview" || action === "report_test") {
+      const d = body.report ?? {};
+      const rep = { nome: String(d.nome ?? "Relatório"), concentrador_id: d.concentrador_id || null, last_sent_at: null, interval_minutes: Number(d.interval_minutes) || 60, condition_window_minutes: Number(d.condition_window_minutes) || 5 };
+      const text = render(String(d.template ?? "").slice(0, 4000), await buildVars(sb, rep, { condicao_valor: d.condition_threshold ?? 0 }));
+      if (action === "report_preview") return json({ text });
+      const phones = Array.isArray(d.phones) && d.phones.length ? d.phones.map(String) : s.phones;
+      await sendText({ ...s, phones }, `🧪 *TESTE*\n${text}`);
+      await sb.from("notification_log").insert({ rule_key: "report_test", message: text });
+      return json({ ok: true });
+    }
+
+
     if (action === "test") {
       await sendText(s, "✅ Teste do NOC: integração com MultixZap funcionando.");
       await sb.from("notification_log").insert({ rule_key: "test", message: "Mensagem de teste" });
@@ -194,6 +207,37 @@ Deno.serve(async (req) => {
       if (quiet && !a.critical) continue;
       if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
     }
+
+    // Relatórios personalizados
+    const { data: reps } = await sb.from("custom_reports").select("*").eq("enabled", true);
+    for (const r of (reps ?? []) as Report[]) {
+      try {
+        let extra: Record<string, string | number> = {};
+        let ccid = r.concentrador_id;
+        if (r.trigger_type === "condition") {
+          if (!r.days.includes(nowSp.getDay())) continue;
+          const last = r.last_sent_at ? new Date(r.last_sent_at).getTime() : 0;
+          if (Date.now() - last < r.cooldown_minutes * 60000) continue;
+          const hit = await checkCondition(sb, r);
+          if (!hit) continue;
+          if (quiet && !["mass_disconnect", "concentrador_down", "online_below"].includes(r.condition_key ?? "")) continue;
+          extra = { condicao_valor: hit.value };
+          if (hit.concentrador_id && hit.concentrador_id !== "?") ccid = hit.concentrador_id;
+        } else {
+          if (!isDue(r, nowSp)) continue;
+          if (quiet) continue;
+        }
+        const text = render(r.template, await buildVars(sb, { ...r, concentrador_id: ccid }, extra));
+        let ok = true, err: string | null = null;
+        try { await sendText({ ...s, phones: r.phones.length ? r.phones : s.phones }, text); } catch (e) { ok = false; err = (e as Error).message; }
+        await sb.from("notification_log").insert({ rule_key: `report:${r.nome}`, dedupe_key: `report:${r.id}`, message: text, success: ok, error: err });
+        await sb.from("custom_reports").update({ last_sent_at: new Date().toISOString(), last_success: ok, last_error: err }).eq("id", r.id);
+        if (ok) sent++;
+      } catch (e) {
+        await sb.from("custom_reports").update({ last_error: (e as Error).message }).eq("id", r.id);
+      }
+    }
+
 
     const dayOk = (s.report_days ?? [0, 1, 2, 3, 4, 5, 6]).includes(nowSp.getDay());
     if (dayOk && s.daily_report_enabled && mins >= s.daily_report_hour * 60 + (s.daily_report_minute ?? 0) && s.last_daily_sent_on !== today) {
