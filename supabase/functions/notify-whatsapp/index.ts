@@ -11,7 +11,7 @@ type Settings = {
   enabled: boolean; api_url: string | null; api_token: string | null; instance: string | null;
   phones: string[]; daily_report_enabled: boolean; daily_report_hour: number; last_daily_sent_on: string | null; id: string;
 };
-type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number };
+type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number; window_minutes?: number; tolerance_minutes?: number };
 
 async function sendText(s: Settings, text: string) {
   if (!s.api_url || !s.api_token || !s.instance) throw new Error("MultixZap não configurado");
@@ -46,12 +46,13 @@ async function deliver(s: Settings, ruleKey: string, dedupe: string, text: strin
 }
 
 async function collectAlerts(rules: Map<string, Rule>) {
-  const out: { key: string; dedupe: string; text: string; cooldown: number }[] = [];
+  const out: { key: string; dedupe: string; text: string; cooldown: number; critical?: boolean }[] = [];
   const on = (k: string) => { const r = rules.get(k); return r && r.enabled && r.send_whatsapp ? r : null; };
-  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online");
+  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta");
   for (const c of concs ?? []) {
     let r = on("concentrador_down");
-    if (r && c.status === "offline") out.push({ key: r.rule_key, dedupe: `down:${c.id}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} parou de responder.` });
+    const tolOk = !r?.tolerance_minutes || !c.ultima_coleta || Date.now() - new Date(c.ultima_coleta).getTime() >= r.tolerance_minutes * 60000;
+    if (r && c.status === "offline" && tolOk) out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} parou de responder.` });
     r = on("cpu_high");
     if (r && (c.cpu_load ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `cpu:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *CPU alta*\n${c.nome}: ${c.cpu_load}% (limite ${r.threshold}%)` });
     r = on("memory_high");
@@ -60,17 +61,18 @@ async function collectAlerts(rules: Map<string, Rule>) {
   let r = on("online_drop");
   if (r && r.threshold > 0) {
     const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true);
-    if ((count ?? 0) < r.threshold) out.push({ key: r.rule_key, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
+    if ((count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
   }
   r = on("mass_disconnect");
   if (r) {
-    const since = new Date(Date.now() - 5 * 60000).toISOString();
+    const win = Math.max(1, r.window_minutes ?? 5);
+    const since = new Date(Date.now() - win * 60000).toISOString();
     const { data } = await sb.from("eventos").select("concentrador_id").eq("tipo", "disconnect").gte("created_at", since);
     const by = new Map<string, number>();
     for (const e of data ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + 1);
     for (const [cid, n] of by) if (n >= r.threshold) {
       const nome = (concs ?? []).find((c) => c.id === cid)?.nome ?? "concentrador";
-      out.push({ key: r.rule_key, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos 5 min em ${nome}.` });
+      out.push({ key: r.rule_key, critical: true, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos ${win} min em ${nome}.` });
     }
   }
   r = on("client_unstable");
@@ -90,7 +92,7 @@ async function collectAlerts(rules: Map<string, Rule>) {
   return out;
 }
 
-async function buildDaily(rules: Map<string, Rule>) {
+async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário NOC") {
   const inc = (k: string) => rules.get(k)?.enabled && rules.get(k)?.include_in_daily;
   const since = new Date(Date.now() - 86400000).toISOString();
   const [{ count: online }, { data: drops }, { data: concs }, { data: alerts }] = await Promise.all([
@@ -103,7 +105,7 @@ async function buildDaily(rules: Map<string, Rule>) {
   for (const e of drops ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
   const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const lim = rules.get("client_unstable")?.threshold ?? 5;
-  const lines = [`📊 *Relatório diário NOC* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "", `👥 Clientes online: *${online ?? 0}*`, `📉 Quedas em 24h: *${drops?.length ?? 0}*`, `🔔 Alertas em 24h: *${alerts?.length ?? 0}*`];
+  const lines = [`📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "", `👥 Clientes online: *${online ?? 0}*`, `📉 Quedas em 24h: *${drops?.length ?? 0}*`, `🔔 Alertas em 24h: *${alerts?.length ?? 0}*`];
   if (inc("client_unstable")) lines.push(`⚠️ Clientes instáveis (${lim}+ quedas): *${[...by.values()].filter((n) => n >= lim).length}*`);
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
@@ -180,16 +182,27 @@ Deno.serve(async (req) => {
     }
 
     if (!s.enabled) return json({ ok: true, skipped: "desativado" });
+    const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    const today = `${nowSp.getFullYear()}-${String(nowSp.getMonth() + 1).padStart(2, "0")}-${String(nowSp.getDate()).padStart(2, "0")}`;
+    const h = nowSp.getHours(), mins = h * 60 + nowSp.getMinutes();
+    const qs = s.quiet_start_hour ?? 23, qe = s.quiet_end_hour ?? 6;
+    const quiet = !!s.quiet_enabled && (qs > qe ? h >= qs || h < qe : h >= qs && h < qe);
+
     const alerts = await collectAlerts(rules);
     let sent = 0;
-    for (const a of alerts) if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
+    for (const a of alerts) {
+      if (quiet && !a.critical) continue;
+      if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
+    }
 
-    const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-    const today = nowSp.toISOString().slice(0, 10);
-    if (s.daily_report_enabled && nowSp.getHours() >= s.daily_report_hour && s.last_daily_sent_on !== today) {
-      const text = await buildDaily(rules);
-      await deliver(s, "daily", `daily:${today}`, text, 0);
+    const dayOk = (s.report_days ?? [0, 1, 2, 3, 4, 5, 6]).includes(nowSp.getDay());
+    if (dayOk && s.daily_report_enabled && mins >= s.daily_report_hour * 60 + (s.daily_report_minute ?? 0) && s.last_daily_sent_on !== today) {
+      await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
       await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
+    }
+    if (dayOk && s.evening_report_enabled && h >= (s.evening_report_hour ?? 18) && s.last_evening_sent_on !== today) {
+      await deliver(s, "daily", `evening:${today}`, await buildDaily(rules, "Fechamento do dia"), 0);
+      await sb.from("notification_settings").update({ last_evening_sent_on: today }).eq("id", s.id);
     }
     return json({ ok: true, checked: alerts.length, sent });
   } catch (e) {

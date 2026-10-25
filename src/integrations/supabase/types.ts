@@ -78,7 +78,9 @@ export type Database = {
           send_whatsapp: boolean
           threshold: number
           threshold_label: string | null
+          tolerance_minutes: number
           updated_at: string
+          window_minutes: number
         }
         Insert: {
           cooldown_minutes?: number
@@ -93,7 +95,9 @@ export type Database = {
           send_whatsapp?: boolean
           threshold?: number
           threshold_label?: string | null
+          tolerance_minutes?: number
           updated_at?: string
+          window_minutes?: number
         }
         Update: {
           cooldown_minutes?: number
@@ -108,7 +112,9 @@ export type Database = {
           send_whatsapp?: boolean
           threshold?: number
           threshold_label?: string | null
+          tolerance_minutes?: number
           updated_at?: string
+          window_minutes?: number
         }
         Relationships: [
           {
@@ -667,12 +673,20 @@ export type Database = {
           created_at: string
           daily_report_enabled: boolean
           daily_report_hour: number
+          daily_report_minute: number
           enabled: boolean
+          evening_report_enabled: boolean
+          evening_report_hour: number
           id: string
           instance: string | null
           last_daily_sent_on: string | null
+          last_evening_sent_on: string | null
           organization_id: string | null
           phones: string[]
+          quiet_enabled: boolean
+          quiet_end_hour: number
+          quiet_start_hour: number
+          report_days: number[]
           updated_at: string
         }
         Insert: {
@@ -681,12 +695,20 @@ export type Database = {
           created_at?: string
           daily_report_enabled?: boolean
           daily_report_hour?: number
+          daily_report_minute?: number
           enabled?: boolean
+          evening_report_enabled?: boolean
+          evening_report_hour?: number
           id?: string
           instance?: string | null
           last_daily_sent_on?: string | null
+          last_evening_sent_on?: string | null
           organization_id?: string | null
           phones?: string[]
+          quiet_enabled?: boolean
+          quiet_end_hour?: number
+          quiet_start_hour?: number
+          report_days?: number[]
           updated_at?: string
         }
         Update: {
@@ -695,12 +717,20 @@ export type Database = {
           created_at?: string
           daily_report_enabled?: boolean
           daily_report_hour?: number
+          daily_report_minute?: number
           enabled?: boolean
+          evening_report_enabled?: boolean
+          evening_report_hour?: number
           id?: string
           instance?: string | null
           last_daily_sent_on?: string | null
+          last_evening_sent_on?: string | null
           organization_id?: string | null
           phones?: string[]
+          quiet_enabled?: boolean
+          quiet_end_hour?: number
+          quiet_start_hour?: number
+          report_days?: number[]
           updated_at?: string
         }
         Relationships: [
