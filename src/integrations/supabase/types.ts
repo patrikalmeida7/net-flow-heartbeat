@@ -191,10 +191,13 @@ export type Database = {
           host_interno: string | null
           id: string
           identidade: string | null
+          last_collect_attempt_at: string | null
+          last_collect_error: string | null
           memory_used_pct: number | null
           modelo: string | null
           nome: string
           observacoes: string | null
+          offline_since: string | null
           organization_id: string | null
           status: Database["public"]["Enums"]["device_status"]
           ultima_coleta: string | null
@@ -211,10 +214,13 @@ export type Database = {
           host_interno?: string | null
           id?: string
           identidade?: string | null
+          last_collect_attempt_at?: string | null
+          last_collect_error?: string | null
           memory_used_pct?: number | null
           modelo?: string | null
           nome: string
           observacoes?: string | null
+          offline_since?: string | null
           organization_id?: string | null
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
@@ -231,10 +237,13 @@ export type Database = {
           host_interno?: string | null
           id?: string
           identidade?: string | null
+          last_collect_attempt_at?: string | null
+          last_collect_error?: string | null
           memory_used_pct?: number | null
           modelo?: string | null
           nome?: string
           observacoes?: string | null
+          offline_since?: string | null
           organization_id?: string | null
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
@@ -628,6 +637,24 @@ export type Database = {
           },
         ]
       }
+      job_locks: {
+        Row: {
+          holder: string | null
+          locked_until: string
+          name: string
+        }
+        Insert: {
+          holder?: string | null
+          locked_until?: string
+          name: string
+        }
+        Update: {
+          holder?: string | null
+          locked_until?: string
+          name?: string
+        }
+        Relationships: []
+      }
       metric_samples: {
         Row: {
           collected_at: string
@@ -758,6 +785,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notification_deliveries: {
+        Row: {
+          attempts: number
+          created_at: string
+          dedupe_key: string
+          id: string
+          last_error: string | null
+          phone: string
+          provider_message_id: string | null
+          rule_key: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          dedupe_key: string
+          id?: string
+          last_error?: string | null
+          phone: string
+          provider_message_id?: string | null
+          rule_key?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          dedupe_key?: string
+          id?: string
+          last_error?: string | null
+          phone?: string
+          provider_message_id?: string | null
+          rule_key?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       notification_log: {
         Row: {
@@ -1422,6 +1488,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      analise_24h: { Args: never; Returns: Json }
+      client_drop_stats: {
+        Args: { _concentrador: string; _username: string }
+        Returns: Json
+      }
       connection_history: {
         Args: { _hours?: number }
         Returns: {
@@ -1430,6 +1501,29 @@ export type Database = {
         }[]
       }
       dashboard_summary: { Args: never; Returns: Json }
+      eventos_page: {
+        Args: {
+          _concentrador?: string
+          _limit?: number
+          _offset?: number
+          _search?: string
+          _since?: string
+          _tipo?: string
+          _username?: string
+        }
+        Returns: {
+          concentrador_id: string
+          concentrador_nome: string
+          created_at: string
+          descricao: string
+          id: string
+          metadata: Json
+          rbs_id: string
+          tipo: Database["public"]["Enums"]["event_type"]
+          total_count: number
+          username: string
+        }[]
+      }
       get_device_credential_password: {
         Args: { _credential_id: string }
         Returns: string
@@ -1447,11 +1541,44 @@ export type Database = {
         }
         Returns: boolean
       }
+      inet_or_null: { Args: { _t: string }; Returns: unknown }
       is_org_member: {
         Args: { _org_id: string; _user_id: string }
         Returns: boolean
       }
+      pppoe_clients_page: {
+        Args: {
+          _dir?: string
+          _limit?: number
+          _offset?: number
+          _search?: string
+          _sort?: string
+          _status?: string
+        }
+        Returns: {
+          bytes_in: number
+          bytes_out: number
+          concentrador_id: string
+          concentrador_nome: string
+          conectado_em: string
+          drops_24h: number
+          id: string
+          interface: string
+          ip_address: string
+          online: boolean
+          stale: boolean
+          total_count: number
+          ultima_atualizacao: string
+          uptime_seconds: number
+          username: string
+        }[]
+      }
+      pppoe_summary: { Args: never; Returns: Json }
       purge_old_metric_samples: { Args: never; Returns: undefined }
+      release_job_lock: {
+        Args: { _holder: string; _name: string }
+        Returns: undefined
+      }
       set_device_credential_password: {
         Args: { _credential_id: string; _password: string }
         Returns: undefined
@@ -1467,6 +1594,10 @@ export type Database = {
       set_vpn_secret: {
         Args: { _connection_id: string; _field: string; _value: string }
         Returns: undefined
+      }
+      try_job_lock: {
+        Args: { _holder: string; _name: string; _seconds: number }
+        Returns: boolean
       }
     }
     Enums: {

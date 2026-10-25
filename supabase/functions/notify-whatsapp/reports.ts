@@ -20,17 +20,17 @@ export async function buildVars(sb: any, rep: Pick<Report, "nome" | "concentrado
   const cid = rep.concentrador_id;
   const f = (q: any) => (cid ? q.eq("concentrador_id", cid) : q);
   const [on, per, d24, concs, al, top] = await Promise.all([
-    f(sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true)),
+    f(sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", new Date(Date.now() - 5 * 60000).toISOString())),
     f(sb.from("eventos").select("id", { count: "exact", head: true }).eq("tipo", "disconnect").gte("created_at", sincePer)),
-    f(sb.from("eventos").select("username").eq("tipo", "disconnect").gte("created_at", since24).limit(10000)),
+    f(sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", since24).limit(50000)),
     cid ? sb.from("concentradores").select("*").eq("id", cid) : sb.from("concentradores").select("*"),
     sb.from("alertas").select("id", { count: "exact", head: true }).eq("status", "active"),
     f(sb.from("pppoe_sessions").select("username,bytes_in,bytes_out").eq("online", true).order("bytes_out", { ascending: false }).limit(1)),
   ]);
   const by = new Map<string, number>();
-  for (const e of d24.data ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
+  for (const e of d24.data ?? []) if (e.username) { const k = cs0(e); by.set(k, (by.get(k) ?? 0) + 1); }
   const instaveis = [...by.values()].filter((n) => n >= 3).length;
-  const topQ = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topQ = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => [k.split("|").slice(1).join("|"), n] as const);
   const cs = concs.data ?? [];
   const c0 = cs[0];
   const avg = (k: string) => cs.length ? Math.round(cs.reduce((a: number, c: any) => a + (c[k] ?? 0), 0) / cs.length) : 0;
@@ -60,6 +60,9 @@ export async function buildVars(sb: any, rep: Pick<Report, "nome" | "concentrado
   return vars;
 }
 
+// Chave de cliente = concentrador + login (logins iguais em concentradores diferentes são clientes distintos)
+const cs0 = (e: { username: string; concentrador_id: string | null }) => `${e.concentrador_id ?? "?"}|${e.username}`;
+
 export function render(tpl: string, vars: Record<string, string | number>) {
   // Blocos condicionais: {se_xxx}texto{fim} aparece só se a variável xxx for > 0 / não vazia
   let out = tpl.replace(/\{se_([a-z_]+)\}([\s\S]*?)\{fim\}/g, (_, k, body) => {
@@ -87,7 +90,7 @@ export async function checkCondition(sb: any, r: Report): Promise<{ value: numbe
       return best && best[1] >= thr ? { value: best[1], concentrador_id: best[0] } : null;
     }
     case "concentrador_down": {
-      const { data } = await (cid ? sb.from("concentradores").select("id,status").eq("id", cid) : sb.from("concentradores").select("id,status"));
+      const { data } = await (cid ? sb.from("concentradores").select("id,status,offline_since").eq("id", cid) : sb.from("concentradores").select("id,status,offline_since"));
       const off = (data ?? []).find((c: any) => c.status === "offline");
       return off ? { value: 1, concentrador_id: off.id } : null;
     }
@@ -99,14 +102,17 @@ export async function checkCondition(sb: any, r: Report): Promise<{ value: numbe
       return hit ? { value: hit[k], concentrador_id: hit.id } : null;
     }
     case "online_below": {
-      const { count } = await f(sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true));
+      const fresh = new Date(Date.now() - 5 * 60000).toISOString();
+      const { count } = await f(sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh));
+      const { count: stale } = await f(sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).lt("ultima_atualizacao", fresh));
+      if (!count && stale) return null; // coleta parada: não confundir com clientes caindo
       return (count ?? 0) < thr ? { value: count ?? 0 } : null;
     }
     case "client_unstable": {
       const since = new Date(Date.now() - 86400000).toISOString();
-      const { data } = await f(sb.from("eventos").select("username").eq("tipo", "disconnect").gte("created_at", since).limit(10000));
+      const { data } = await f(sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", since).limit(50000));
       const by = new Map<string, number>();
-      for (const e of data ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
+      for (const e of data ?? []) if (e.username) { const k = cs0(e); by.set(k, (by.get(k) ?? 0) + 1); }
       const n = [...by.values()].filter((v) => v >= thr).length;
       return n > 0 ? { value: n } : null;
     }

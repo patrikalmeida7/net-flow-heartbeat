@@ -3,6 +3,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { buildVars, render, checkCondition, isDue, type Report } from "./reports.ts";
+import {
+  allAccepted, applyResults, episodeKey, exhausted, normalizePhones, offlineBeyondTolerance, pendingPhones,
+  type DeliveryRow, type SendResult,
+} from "./logic.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const json = (b: unknown, s = 200) =>
@@ -14,46 +18,89 @@ type Settings = {
 };
 type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number; window_minutes?: number; tolerance_minutes?: number };
 
-async function sendText(s: Settings, text: string) {
+function baseUrl(s: Settings) {
   if (!s.api_url || !s.api_token || !s.instance) throw new Error("Servidor WhatsApp não configurado");
-  const base = (/^https?:\/\//.test(s.api_url) ? s.api_url : `https://${s.api_url}`).replace(/\/+$/, "");
-  const errs: string[] = [];
-  for (const raw of s.phones) {
-    const number = raw.replace(/\D/g, "");
-    if (!number) continue;
-    const r = await fetch(`${base}/message/sendText/${encodeURIComponent(s.instance)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: s.api_token, Authorization: `Bearer ${s.api_token}` },
-      body: JSON.stringify({ number, text }),
-    });
-    if (!r.ok) errs.push(`${number}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
-  }
-  if (errs.length) throw new Error(errs.join(" | "));
+  return (/^https?:\/\//.test(s.api_url) ? s.api_url : `https://${s.api_url}`).replace(/\/+$/, "");
 }
 
-async function deliver(s: Settings, ruleKey: string, dedupe: string, text: string, cooldown: number) {
+// Envia para UM destinatário. ok=true significa "aceito pela API" (não confirma entrega no aparelho).
+async function sendOne(s: Settings, number: string, text: string): Promise<SendResult> {
+  try {
+    const r = await fetch(`${baseUrl(s)}/message/sendText/${encodeURIComponent(s.instance!)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: s.api_token!, Authorization: `Bearer ${s.api_token}` },
+      body: JSON.stringify({ number, text }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await r.text();
+    if (!r.ok) return { phone: number, ok: false, error: `HTTP ${r.status} ${body.slice(0, 200)}` };
+    let id: string | null = null;
+    try { id = JSON.parse(body)?.key?.id ?? null; } catch { /* noop */ }
+    return { phone: number, ok: true, messageId: id };
+  } catch (e) {
+    return { phone: number, ok: false, error: (e as Error).message };
+  }
+}
+
+// Usado só em ações manuais (teste/relatório manual): lança erro se algum destinatário falhar.
+async function sendText(s: Settings, text: string) {
+  baseUrl(s);
+  const results = await Promise.all(normalizePhones(s.phones).map((p) => sendOne(s, p, text)));
+  const errs = results.filter((r) => !r.ok).map((r) => `${r.phone}: ${r.error}`);
+  if (errs.length) throw new Error(errs.join(" | "));
+  return results;
+}
+
+type DeliverOutcome = { status: "skipped" | "complete" | "partial" | "failed" | "exhausted"; accepted: number; failed: number; key: string };
+
+// Entrega com registro por destinatário: reenvia só pendentes (máx. MAX_ATTEMPTS), nunca repete quem já foi aceito.
+async function deliver(s: Settings, ruleKey: string, dedupe: string, text: string, cooldown: number, phones = s.phones): Promise<DeliverOutcome> {
+  const key = episodeKey(dedupe, cooldown);
   if (cooldown > 0) {
     const since = new Date(Date.now() - cooldown * 60000).toISOString();
     const { data } = await sb.from("notification_log").select("id").eq("dedupe_key", dedupe).eq("success", true).gte("created_at", since).limit(1);
-    if (data?.length) return false;
+    if (data?.length) return { status: "skipped", accepted: 0, failed: 0, key };
   }
-  try {
-    await sendText(s, text);
-    await sb.from("notification_log").insert({ rule_key: ruleKey, dedupe_key: dedupe, message: text });
-  } catch (e) {
-    await sb.from("notification_log").insert({ rule_key: ruleKey, dedupe_key: dedupe, message: text, success: false, error: String((e as Error).message) });
-  }
-  return true;
+  const { data: rows0, error: rErr } = await sb.from("notification_deliveries").select("phone,status,attempts").eq("dedupe_key", key);
+  if (rErr) throw new Error(`deliveries: ${rErr.message}`);
+  const rows = (rows0 ?? []) as DeliveryRow[];
+  if (allAccepted(phones, rows)) return { status: "complete", accepted: 0, failed: 0, key };
+  const pend = pendingPhones(phones, rows);
+  if (!pend.length) return { status: "exhausted", accepted: 0, failed: 0, key };
+
+  const results: SendResult[] = [];
+  for (const p of pend) results.push(await sendOne(s, p, text));
+  const merged = applyResults(rows, results);
+  const upserts = results.map((r) => ({
+    dedupe_key: key, rule_key: ruleKey, phone: r.phone,
+    status: r.ok ? "accepted" : "failed",
+    attempts: merged.find((m) => m.phone === r.phone)!.attempts,
+    provider_message_id: r.messageId ?? null,
+    last_error: r.ok ? null : r.error ?? "erro",
+  }));
+  const { error: uErr } = await sb.from("notification_deliveries").upsert(upserts, { onConflict: "dedupe_key,phone" });
+  if (uErr) console.error("notify-whatsapp: falha ao registrar entregas", uErr.message);
+
+  const done = allAccepted(phones, merged);
+  const failed = results.filter((r) => !r.ok);
+  await sb.from("notification_log").insert({
+    rule_key: ruleKey, dedupe_key: dedupe, message: text, success: done,
+    error: failed.length ? failed.map((f) => `${f.phone}: ${f.error}`).join(" | ").slice(0, 1000) : null,
+  });
+  const status = done ? "complete" : failed.length === results.length ? (exhausted(phones, merged) ? "exhausted" : "failed") : "partial";
+  return { status, accepted: results.length - failed.length, failed: failed.length, key };
 }
 
 async function collectAlerts(rules: Map<string, Rule>) {
   const out: { key: string; dedupe: string; text: string; cooldown: number; critical?: boolean }[] = [];
   const on = (k: string) => { const r = rules.get(k); return r && r.enabled && r.send_whatsapp ? r : null; };
-  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta");
+  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta,offline_since");
   for (const c of concs ?? []) {
     let r = on("concentrador_down");
-    const tolOk = !r?.tolerance_minutes || !c.ultima_coleta || Date.now() - new Date(c.ultima_coleta).getTime() >= r.tolerance_minutes * 60000;
-    if (r && c.status === "offline" && tolOk) out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} parou de responder.` });
+    if (r && offlineBeyondTolerance(c, r.tolerance_minutes)) {
+      const desde = c.offline_since ? new Date(c.offline_since).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : "?";
+      out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}:${c.offline_since ?? ""}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} sem resposta desde ${desde}.` });
+    }
     r = on("cpu_high");
     if (r && (c.cpu_load ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `cpu:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *CPU alta*\n${c.nome}: ${c.cpu_load}% (limite ${r.threshold}%)` });
     r = on("memory_high");
@@ -61,8 +108,11 @@ async function collectAlerts(rules: Map<string, Rule>) {
   }
   let r = on("online_drop");
   if (r && r.threshold > 0) {
-    const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true);
-    if ((count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
+    // Só avalia com dados frescos: coletor parado não vira "clientes abaixo do limite"
+    const fresh = new Date(Date.now() - 5 * 60000).toISOString();
+    const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh);
+    const anyFresh = (concs ?? []).some((c) => c.ultima_coleta && c.ultima_coleta >= fresh);
+    if (anyFresh && (count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
   }
   r = on("mass_disconnect");
   if (r) {
@@ -80,11 +130,19 @@ async function collectAlerts(rules: Map<string, Rule>) {
   }
   r = on("client_unstable");
   if (r) {
+    // Só quedas individuais; agrupadas por concentrador+login para não misturar logins iguais
     const since = new Date(Date.now() - 86400000).toISOString();
-    const { data } = await sb.from("eventos").select("username").eq("tipo", "disconnect").gte("created_at", since).limit(10000);
-    const by = new Map<string, number>();
-    for (const e of data ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
-    for (const [u, n] of by) if (n >= r.threshold) out.push({ key: r.rule_key, dedupe: `unstable:${u}`, cooldown: r.cooldown_minutes, text: `⚠️ *Cliente instável*\n${u}: ${n} quedas nas últimas 24h.` });
+    const { data } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", since).limit(50000);
+    const by = new Map<string, { u: string; cid: string; n: number }>();
+    for (const e of data ?? []) if (e.username) {
+      const k = `${e.concentrador_id ?? "?"}|${e.username}`;
+      const cur = by.get(k) ?? { u: e.username, cid: e.concentrador_id ?? "?", n: 0 };
+      cur.n++; by.set(k, cur);
+    }
+    for (const v of by.values()) if (v.n >= r.threshold) {
+      const nome = (concs ?? []).find((c) => c.id === v.cid)?.nome ?? "";
+      out.push({ key: r.rule_key, dedupe: `unstable:${v.cid}:${v.u}`, cooldown: r.cooldown_minutes, text: `⚠️ *Cliente instável*\n${v.u}${nome ? ` (${nome})` : ""}: ${v.n} quedas individuais nas últimas 24h.` });
+    }
   }
   r = on("system_alerts");
   if (r) {
@@ -97,24 +155,36 @@ async function collectAlerts(rules: Map<string, Rule>) {
 
 async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário NOC") {
   const inc = (k: string) => rules.get(k)?.enabled && rules.get(k)?.include_in_daily;
-  const since = new Date(Date.now() - 86400000).toISOString();
-  const [{ count: online }, { data: drops }, { data: concs }, { data: alerts }] = await Promise.all([
-    sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true),
-    sb.from("eventos").select("username").eq("tipo", "disconnect").gte("created_at", since).limit(10000),
-    sb.from("concentradores").select("nome,status,cpu_load,memory_used_pct,usuarios_online"),
-    sb.from("alertas").select("id").gte("created_at", since),
+  const [{ data: summary }, { data: an }, { data: concs }, { count: alerts }] = await Promise.all([
+    sb.rpc("dashboard_summary"),
+    sb.rpc("analise_24h"),
+    sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta"),
+    sb.from("alertas").select("id", { count: "exact", head: true }).gte("created_at", new Date(Date.now() - 86400000).toISOString()),
   ]);
-  const by = new Map<string, number>();
-  for (const e of drops ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
-  const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const sm = (summary ?? {}) as Record<string, number>;
+  const a = (an ?? {}) as { individual_drops?: number; mass_incidents?: number; mass_affected?: number; top?: { concentrador_id: string; username: string; n: number }[] };
   const lim = rules.get("client_unstable")?.threshold ?? 5;
-  const lines = [`📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "", `👥 Clientes online: *${online ?? 0}*`, `📉 Quedas em 24h: *${drops?.length ?? 0}*`, `🔔 Alertas em 24h: *${alerts?.length ?? 0}*`];
-  if (inc("client_unstable")) lines.push(`⚠️ Clientes instáveis (${lim}+ quedas): *${[...by.values()].filter((n) => n >= lim).length}*`);
+  const top = (a.top ?? []).slice(0, 5);
+  const nomeC = (id: string) => (concs ?? []).find((c) => c.id === id)?.nome ?? "";
+  const stale = Number(sm.online_stale ?? 0);
+  const lines = [
+    `📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "",
+    `👥 Clientes online: *${sm.online_now ?? 0}*${stale ? ` (+${stale} sem atualização recente)` : ""}`,
+    `📉 Quedas individuais 24h: *${a.individual_drops ?? 0}*`,
+    `🚨 Quedas em massa 24h: *${a.mass_incidents ?? 0}* (${a.mass_affected ?? 0} clientes afetados)`,
+    `🔔 Alertas em 24h: *${alerts ?? 0}*`,
+  ];
+  if (inc("client_unstable")) {
+    const { data: ev } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", new Date(Date.now() - 86400000).toISOString()).limit(50000);
+    const by = new Map<string, number>();
+    for (const e of ev ?? []) if (e.username) { const k = `${e.concentrador_id}|${e.username}`; by.set(k, (by.get(k) ?? 0) + 1); }
+    lines.push(`⚠️ Clientes com ${lim}+ quedas individuais: *${[...by.values()].filter((n) => n >= lim).length}*`);
+  }
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
     for (const c of concs ?? []) lines.push(`${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.usuarios_online} online`);
   }
-  if (top.length) { lines.push("", "*Top quedas*"); top.forEach(([u, n], i) => lines.push(`${i + 1}. ${u} — ${n}`)); }
+  if (top.length) { lines.push("", "*Top quedas individuais*"); top.forEach((t, i) => lines.push(`${i + 1}. ${t.username}${nomeC(t.concentrador_id) ? ` (${nomeC(t.concentrador_id)})` : ""} — ${t.n}`)); }
   return lines.join("\n");
 }
 
@@ -208,6 +278,12 @@ Deno.serve(async (req) => {
     }
 
     if (!s.enabled) return json({ ok: true, skipped: "desativado" });
+
+    // Trava contra execuções concorrentes (cron sobreposto / chamadas duplicadas)
+    const holder = crypto.randomUUID();
+    const { data: locked } = await sb.rpc("try_job_lock", { _name: "notify-whatsapp", _holder: holder, _seconds: 55 });
+    if (!locked) return json({ ok: true, skipped: "execução concorrente em andamento" });
+    try {
     const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     const today = `${nowSp.getFullYear()}-${String(nowSp.getMonth() + 1).padStart(2, "0")}-${String(nowSp.getDate()).padStart(2, "0")}`;
     const h = nowSp.getHours(), mins = h * 60 + nowSp.getMinutes();
@@ -215,13 +291,14 @@ Deno.serve(async (req) => {
     const quiet = !!s.quiet_enabled && (qs > qe ? h >= qs || h < qe : h >= qs && h < qe);
 
     const alerts = await collectAlerts(rules);
-    let sent = 0;
+    const outcomes: Record<string, number> = {};
+    const count = (o: DeliverOutcome) => { outcomes[o.status] = (outcomes[o.status] ?? 0) + 1; };
     for (const a of alerts) {
       if (quiet && !a.critical) continue;
-      if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
+      count(await deliver(s, a.key, a.dedupe, a.text, a.cooldown));
     }
 
-    // Relatórios personalizados
+    // Relatórios personalizados: episódio estável até concluir (retry só dos pendentes)
     const { data: reps } = await sb.from("custom_reports").select("*").eq("enabled", true);
     for (const r of (reps ?? []) as Report[]) {
       try {
@@ -241,27 +318,35 @@ Deno.serve(async (req) => {
           if (quiet) continue;
         }
         const text = render(r.template, await buildVars(sb, { ...r, concentrador_id: ccid }, extra));
-        let ok = true, err: string | null = null;
-        try { await sendText({ ...s, phones: r.phones.length ? r.phones : s.phones }, text); } catch (e) { ok = false; err = (e as Error).message; }
-        await sb.from("notification_log").insert({ rule_key: `report:${r.nome}`, dedupe_key: `report:${r.id}`, message: text, success: ok, error: err });
-        await sb.from("custom_reports").update({ last_sent_at: new Date().toISOString(), last_success: ok, last_error: err }).eq("id", r.id);
-        if (ok) sent++;
+        const o = await deliver(s, `report:${r.nome}`, `report:${r.id}:${r.last_sent_at ?? "first"}`, text, 0, r.phones.length ? r.phones : s.phones);
+        count(o);
+        const done = o.status === "complete";
+        await sb.from("custom_reports").update({
+          ...(done ? { last_sent_at: new Date().toISOString() } : {}),
+          last_success: done,
+          last_error: done ? null : `Envio ${o.status}: ${o.failed} falha(s)`,
+        }).eq("id", r.id);
       } catch (e) {
         await sb.from("custom_reports").update({ last_error: (e as Error).message }).eq("id", r.id);
       }
     }
 
-
+    // Resumos diários: só marca como enviado quando todos os destinatários foram aceitos
     const dayOk = (s.report_days ?? [0, 1, 2, 3, 4, 5, 6]).includes(nowSp.getDay());
     if (dayOk && s.daily_report_enabled && mins >= s.daily_report_hour * 60 + (s.daily_report_minute ?? 0) && s.last_daily_sent_on !== today) {
-      await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
-      await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
+      const o = await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
+      count(o);
+      if (o.status === "complete") await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
     }
     if (dayOk && s.evening_report_enabled && h >= (s.evening_report_hour ?? 18) && s.last_evening_sent_on !== today) {
-      await deliver(s, "daily", `evening:${today}`, await buildDaily(rules, "Fechamento do dia"), 0);
-      await sb.from("notification_settings").update({ last_evening_sent_on: today }).eq("id", s.id);
+      const o = await deliver(s, "daily", `evening:${today}`, await buildDaily(rules, "Fechamento do dia"), 0);
+      count(o);
+      if (o.status === "complete") await sb.from("notification_settings").update({ last_evening_sent_on: today }).eq("id", s.id);
     }
-    return json({ ok: true, checked: alerts.length, sent });
+    return json({ ok: true, checked: alerts.length, outcomes, note: "accepted = aceito pela API; entrega no aparelho não é confirmada" });
+    } finally {
+      await sb.rpc("release_job_lock", { _name: "notify-whatsapp", _holder: holder });
+    }
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }

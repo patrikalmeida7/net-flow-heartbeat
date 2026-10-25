@@ -48,6 +48,7 @@ const App = () => (
               <Route path="/rbs/:id" element={<RbsDetalhe />} />
               <Route path="/pppoe" element={<PPPoE />} />
               <Route path="/pppoe/:username" element={<ClienteDetalhe />} />
+              <Route path="/pppoe/c/:concentradorId/:username" element={<ClienteDetalhe />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/eventos" element={<Eventos />} />
               <Route path="/metricas" element={<Metricas />} />

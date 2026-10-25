@@ -16,6 +16,8 @@ const KEY_DASH = ["dashboard"] as const;
 
 type Summary = {
   online_now: number;
+  online_stale: number;
+  last_session_update: string | null;
   disconnected_24h_clients: number;
   mass_incidents_24h: number;
   last_collect_at: string | null;
@@ -85,11 +87,15 @@ export default function Dashboard() {
       {/* Métricas principais */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="Usuários online"
-          value={totalOnline.toLocaleString("pt-BR")}
-          tone="online"
+          label="Usuários online (confirmados)"
+          value={data ? totalOnline.toLocaleString("pt-BR") : "—"}
+          tone={(data?.summary?.online_stale ?? 0) > 0 ? "warning" : "online"}
           icon={<Users className="h-5 w-5" />}
-          hint={`${data?.summary?.disconnected_24h_clients ?? 0} clientes com queda individual nas últimas 24h · ${healthLabel[health.state]}`}
+          hint={
+            (data?.summary?.online_stale ?? 0) > 0
+              ? `${data!.summary.online_stale} sem atualização há +5 min (último estado conhecido${data?.summary?.last_session_update ? `, ${timeAgo(data.summary.last_session_update)}` : ""})`
+              : `${data?.summary?.disconnected_24h_clients ?? 0} clientes com queda individual · ${data?.summary?.mass_incidents_24h ?? 0} quedas em massa (24h)`
+          }
         />
         <MetricCard
           label="Concentradores"
@@ -202,9 +208,22 @@ export default function Dashboard() {
                 <div className="min-w-0">
                   <div className="font-medium">{c.nome}</div>
                   <div className="font-mono text-xs text-muted-foreground">{c.host} • {c.modelo ?? "—"}</div>
+                  {(() => {
+                    const dh = health.devices.find((d) => d.id === c.id);
+                    if (!dh || dh.state === "ok") return null;
+                    return (
+                      <div className="text-xs text-status-warning">
+                        {healthLabel[dh.state]} · dado válido {c.ultima_coleta ? timeAgo(c.ultima_coleta) : "nunca"}
+                        {c.offline_since ? ` · indisponível desde ${new Date(c.offline_since).toLocaleTimeString("pt-BR")}` : ""}
+                        {c.last_collect_error ? ` · ${c.last_collect_error}` : ""}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-mono text-xs text-muted-foreground">{c.usuarios_online} usr</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {c.usuarios_online} usr{health.devices.find((d) => d.id === c.id)?.state !== "ok" ? " (último conhecido)" : ""}
+                  </span>
                   <StatusBadge status={c.status} />
                 </div>
               </div>
