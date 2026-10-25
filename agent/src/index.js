@@ -145,7 +145,7 @@ async function collect(mk) {
       conn.write("/system/resource/print"),
       conn.write("/system/identity/print"),
       conn.write("/ppp/active/print"),
-      conn.write("/interface/print", ["?type=pppoe-in", "=.proplist=name,rx-byte,tx-byte"]).catch(() => []),
+      conn.write("/interface/print", ["?=type=pppoe-in", "=.proplist=name,rx-byte,tx-byte"]).catch(() => []),
     ]);
     // Interface dinâmica do PPPoE se chama "<pppoe-usuario>": tx = download do cliente, rx = upload
     const bytesByUser = new Map();

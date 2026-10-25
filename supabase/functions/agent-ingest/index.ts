@@ -170,30 +170,35 @@ Deno.serve(async (req) => {
     }
 
     // Desconexões
-    const disconnected: { id: string; username: string }[] = [];
+    let disconnected: { id: string; username: string }[] = [];
     for (const [user, id] of dbOnlineMap) {
       if (!incomingOnline.has(user)) disconnected.push({ id, username: user });
     }
+
+    // Falha de coleta (VPS sem acesso ao concentrador): não derrubar ninguém
+    const collectionFailure =
+      c.status === "offline" || (incomingOnline.size === 0 && dbOnlineMap.size > 0);
+    if (collectionFailure) disconnected = [];
+
+    // Queda em massa: muitos clientes somem no mesmo ciclo
+    const massDrop =
+      disconnected.length >= 10 && disconnected.length >= dbOnlineMap.size * 0.3;
 
     // Atualizar sessões existentes (uptime, bytes)
     const updates: Promise<unknown>[] = [];
     for (const [user, s] of incomingOnline) {
       const id = dbOnlineMap.get(user);
       if (id) {
-        updates.push(
-          supabase
-            .from("pppoe_sessions")
-            .update({
-              ip_address: s.ip_address ?? null,
-              caller_id: s.caller_id ?? null,
-              interface: s.interface ?? null,
-              uptime_seconds: s.uptime_seconds ?? null,
-              bytes_in: s.bytes_in ?? 0,
-              bytes_out: s.bytes_out ?? 0,
-              ultima_atualizacao: now,
-            })
-            .eq("id", id),
-        );
+        const upd: Record<string, unknown> = {
+          ip_address: s.ip_address ?? null,
+          caller_id: s.caller_id ?? null,
+          interface: s.interface ?? null,
+          uptime_seconds: s.uptime_seconds ?? null,
+          ultima_atualizacao: now,
+        };
+        if (s.bytes_in != null) upd.bytes_in = s.bytes_in;
+        if (s.bytes_out != null) upd.bytes_out = s.bytes_out;
+        updates.push(supabase.from("pppoe_sessions").update(upd).eq("id", id));
       }
     }
     await Promise.all(updates);
@@ -229,22 +234,41 @@ Deno.serve(async (req) => {
 
     // 3) Eventos
     const events: Array<Record<string, unknown>> = [];
+    // Retorno após queda em massa não conta como reconexão individual
+    const massReturn = newConnections.length >= 10 && newConnections.length >= incomingOnline.size * 0.3;
     for (const c2 of newConnections) {
       events.push({
         tipo: "connect",
         concentrador_id: concentradorId,
         username: c2.username,
         descricao: `Conexão PPPoE: ${c2.username}`,
-        metadata: { ip: c2.ip_address, interface: c2.interface },
+        metadata: { ip: c2.ip_address, interface: c2.interface, scope: massReturn ? "mass" : "individual" },
       });
     }
-    for (const d of disconnected) {
+    if (massDrop) {
       events.push({
-        tipo: "disconnect",
+        tipo: "device_down",
         concentrador_id: concentradorId,
-        username: d.username,
-        descricao: `Desconexão PPPoE: ${d.username}`,
+        descricao: `Queda em massa: ${disconnected.length} clientes caíram juntos em ${c.nome ?? c.host}`,
+        metadata: { scope: "mass", count: disconnected.length, usernames: disconnected.map((d) => d.username).slice(0, 500) },
       });
+      await supabase.from("alertas").insert({
+        titulo: `Queda em massa: ${disconnected.length} clientes`,
+        descricao: `${disconnected.length} de ${dbOnlineMap.size} clientes caíram ao mesmo tempo em ${c.nome ?? c.host}`,
+        severidade: "critical",
+        status: "active",
+        concentrador_id: concentradorId,
+      });
+    } else {
+      for (const d of disconnected) {
+        events.push({
+          tipo: "disconnect",
+          concentrador_id: concentradorId,
+          username: d.username,
+          descricao: `Desconexão PPPoE: ${d.username}`,
+          metadata: { scope: "individual" },
+        });
+      }
     }
 
     // Evento de mudança de status do concentrador
