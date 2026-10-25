@@ -261,6 +261,45 @@ export type Database = {
           },
         ]
       }
+      connection_snapshots: {
+        Row: {
+          bucket_at: string
+          concentrador_id: string
+          id: number
+          online_count: number
+          organization_id: string | null
+        }
+        Insert: {
+          bucket_at: string
+          concentrador_id: string
+          id?: number
+          online_count: number
+          organization_id?: string | null
+        }
+        Update: {
+          bucket_at?: string
+          concentrador_id?: string
+          id?: number
+          online_count?: number
+          organization_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "connection_snapshots_concentrador_id_fkey"
+            columns: ["concentrador_id"]
+            isOneToOne: false
+            referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "connection_snapshots_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_reports: {
         Row: {
           concentrador_id: string | null
@@ -1383,6 +1422,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      connection_history: {
+        Args: { _hours?: number }
+        Returns: {
+          bucket_at: string
+          online: number
+        }[]
+      }
+      dashboard_summary: { Args: never; Returns: Json }
       get_device_credential_password: {
         Args: { _credential_id: string }
         Returns: string
