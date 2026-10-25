@@ -29,6 +29,13 @@
       "when": 1792936495696,
       "tag": "0003_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792937433270,
+      "tag": "0004_alert_timing_settings",
+      "breakpoints": true
     }
   ]
 }
