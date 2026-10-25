@@ -16,7 +16,7 @@ type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: 
 
 async function sendText(s: Settings, text: string) {
   if (!s.api_url || !s.api_token || !s.instance) throw new Error("Servidor WhatsApp não configurado");
-  const base = s.api_url.replace(/\/+$/, "");
+  const base = (/^https?:\/\//.test(s.api_url) ? s.api_url : `https://${s.api_url}`).replace(/\/+$/, "");
   const errs: string[] = [];
   for (const raw of s.phones) {
     const number = raw.replace(/\D/g, "");
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     };
     if (action.startsWith("wa_")) {
       if (!s.api_url || !s.api_token) return json({ error: "Servidor WhatsApp da plataforma ainda não configurado" }, 400);
-      const base = s.api_url.replace(/\/+$/, "");
+      const base = (/^https?:\/\//.test(s.api_url) ? s.api_url : `https://${s.api_url}`).replace(/\/+$/, "");
       const inst = encodeURIComponent(s.instance);
       const h = { "Content-Type": "application/json", apikey: s.api_token, Authorization: `Bearer ${s.api_token}` };
       const call = async (path: string, method = "GET", b?: unknown) => {
