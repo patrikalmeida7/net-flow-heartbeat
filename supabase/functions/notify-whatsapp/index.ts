@@ -15,7 +15,7 @@ type Settings = {
 type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number; window_minutes?: number; tolerance_minutes?: number };
 
 async function sendText(s: Settings, text: string) {
-  if (!s.api_url || !s.api_token || !s.instance) throw new Error("MultixZap não configurado");
+  if (!s.api_url || !s.api_token || !s.instance) throw new Error("Servidor WhatsApp não configurado");
   const base = s.api_url.replace(/\/+$/, "");
   const errs: string[] = [];
   for (const raw of s.phones) {
@@ -195,7 +195,7 @@ Deno.serve(async (req) => {
 
 
     if (action === "test") {
-      await sendText(s, "✅ Teste do NOC: integração com MultixZap funcionando.");
+      await sendText(s, "✅ Teste do NOC: WhatsApp conectado e funcionando.");
       await sb.from("notification_log").insert({ rule_key: "test", message: "Mensagem de teste" });
       return json({ ok: true });
     }

@@ -42,7 +42,7 @@ export function WhatsAppConnect({ ready }: { ready: boolean }) {
         setQr(d.qr ? (d.qr.startsWith("data:") ? d.qr : `data:image/png;base64,${d.qr}`) : null);
         setCode(d.pairingCode ?? null);
         setState("connecting");
-        if (!d.qr && !d.pairingCode) toast.error("O MultixZap não devolveu o QR Code. Tente de novo.");
+        if (!d.qr && !d.pairingCode) toast.error("O servidor não devolveu o QR Code. Tente de novo.");
       }
     } catch (e) { toast.error((e as Error).message); }
     setBusy(false);

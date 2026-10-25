@@ -132,7 +132,7 @@ export default function Relatorios() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Relatórios e Alertas</h1>
-          <p className="text-sm text-muted-foreground">Central de notificações via WhatsApp (MultixZap)</p>
+          <p className="text-sm text-muted-foreground">Central de notificações via WhatsApp (Evolution API)</p>
         </div>
         <Badge variant={s.enabled ? "default" : "secondary"}>{s.enabled ? "Envio automático ligado" : "Envio automático desligado"}</Badge>
       </div>
@@ -254,7 +254,6 @@ export default function Relatorios() {
                   ))}
                 </div>
               </div>
-              <div className="mt-4"><WhatsAppConnect ready={!!(settingsQ.data?.api_url && settingsQ.data?.api_token && settingsQ.data?.instance)} /></div>
               <div className="mt-4 flex flex-wrap justify-between gap-2">
                 <Button variant="secondary" onClick={() => call("test")} disabled={busy || !s.id}><Send className="mr-1 h-4 w-4" />Enviar teste</Button>
                 <Button onClick={save} disabled={busy}>Salvar alterações</Button>
