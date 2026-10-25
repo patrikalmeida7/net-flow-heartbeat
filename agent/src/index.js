@@ -45,9 +45,11 @@ const {
   poll_interval_seconds: cfgPoll = 10,
   snmp_poll_interval_seconds = 30,
   request_timeout_ms = 10000,
+  ingest_timeout_ms = 45000,
   concentradores: staticConcentradores = [],
   rbs = [],
 } = config;
+const ingestionTimeout = Math.min(45000, Math.max(30000, Number(process.env.INGEST_TIMEOUT_MS) || Number(ingest_timeout_ms) || 45000));
 const poll_interval_seconds = Number(process.env.POLL_INTERVAL_SECONDS) || Math.min(cfgPoll, 10);
 // Se não vier no config, deriva a URL de métricas a partir da URL de ingestão
 const metrics_ingest_url =
@@ -215,7 +217,7 @@ function parseRouterOSUptime(str) {
 // ---------- Envio para Lovable Cloud ----------
 async function postJson(url, payload) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), request_timeout_ms);
+  const t = setTimeout(() => ctrl.abort(), ingestionTimeout);
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -370,12 +372,20 @@ async function tickSnmpInner() {
       collected_at: new Date().toISOString(),
       devices,
     });
-    log("INFO", `SNMP ✓ devices=${devices.length} samples=${res.samples_inserted} ifaces=${res.interfaces_upserted}`);
+    if (res.ok !== true || res.persistence_complete !== true) throw new Error(`Persistência SNMP incompleta: ${(res.errors ?? []).slice(0, 5).join(" | ")}`);
+    const validCount = devices.filter((d) => d.snmp_valid === true && !d.snmp_error).length;
+    if (validCount) log("INFO", `SNMP ✓ válidos=${validCount}/${devices.length} samples=${res.samples_inserted} ifaces=${res.interfaces_upserted}`);
+    if (validCount < devices.length) log("WARN", `SNMP: ${devices.length - validCount} falha(s) de consulta registradas; não são coletas bem-sucedidas`);
+    const diagnostic = devices.reduce((a, d) => {
+      for (const k of Object.keys(a)) a[k] += d.counter_diagnostics?.[k] ?? 0;
+      return a;
+    }, { received: 0, absent: 0, invalid: 0, fallback32: 0, partial: 0 });
+    if (diagnostic.absent || diagnostic.invalid || diagnostic.partial || diagnostic.fallback32) log("WARN", `SNMP contadores: ${JSON.stringify(diagnostic)}`);
     if (res.errors?.length) log("ERROR", "metrics-ingest gravou com erros:", res.errors.slice(0, 5).join(" | "));
     if (res.devices_without_data) log("WARN", `SNMP: ${res.devices_without_data} equipamento(s) responderam sem métricas`);
-    if (res.ok && devices.some((d) => d.snmp_valid && !d.snmp_error)) touchHealth();
+    if (validCount > 0) touchHealth();
   } catch (err) {
-    log("ERROR", "SNMP envio falhou:", err.message);
+    log("ERROR", `SNMP persistência não confirmada (limite HTTP ${ingestionTimeout}ms):`, err.message);
   }
 }
 
