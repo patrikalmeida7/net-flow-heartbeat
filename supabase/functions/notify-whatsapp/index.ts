@@ -174,7 +174,12 @@ async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário
     `🚨 Quedas em massa 24h: *${a.mass_incidents ?? 0}* (${a.mass_affected ?? 0} clientes afetados)`,
     `🔔 Alertas em 24h: *${alerts ?? 0}*`,
   ];
-  if (inc("client_unstable")) lines.push(`⚠️ Clientes com ${lim}+ quedas individuais: *${(a.top ?? []).filter((t) => t.n >= lim).length}${(a.top ?? []).length >= 10 ? "+" : ""}*`);
+  if (inc("client_unstable")) {
+    const { data: ev } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", new Date(Date.now() - 86400000).toISOString()).limit(50000);
+    const by = new Map<string, number>();
+    for (const e of ev ?? []) if (e.username) { const k = `${e.concentrador_id}|${e.username}`; by.set(k, (by.get(k) ?? 0) + 1); }
+    lines.push(`⚠️ Clientes com ${lim}+ quedas individuais: *${[...by.values()].filter((n) => n >= lim).length}*`);
+  }
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
     for (const c of concs ?? []) lines.push(`${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.usuarios_online} online`);
