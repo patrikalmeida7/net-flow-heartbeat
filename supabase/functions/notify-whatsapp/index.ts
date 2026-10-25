@@ -11,7 +11,7 @@ type Settings = {
   enabled: boolean; api_url: string | null; api_token: string | null; instance: string | null;
   phones: string[]; daily_report_enabled: boolean; daily_report_hour: number; last_daily_sent_on: string | null; id: string;
 };
-type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number };
+type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number; window_minutes?: number; tolerance_minutes?: number };
 
 async function sendText(s: Settings, text: string) {
   if (!s.api_url || !s.api_token || !s.instance) throw new Error("MultixZap não configurado");
@@ -46,12 +46,13 @@ async function deliver(s: Settings, ruleKey: string, dedupe: string, text: strin
 }
 
 async function collectAlerts(rules: Map<string, Rule>) {
-  const out: { key: string; dedupe: string; text: string; cooldown: number }[] = [];
+  const out: { key: string; dedupe: string; text: string; cooldown: number; critical?: boolean }[] = [];
   const on = (k: string) => { const r = rules.get(k); return r && r.enabled && r.send_whatsapp ? r : null; };
-  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online");
+  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta");
   for (const c of concs ?? []) {
     let r = on("concentrador_down");
-    if (r && c.status === "offline") out.push({ key: r.rule_key, dedupe: `down:${c.id}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} parou de responder.` });
+    const tolOk = !r?.tolerance_minutes || !c.ultima_coleta || Date.now() - new Date(c.ultima_coleta).getTime() >= r.tolerance_minutes * 60000;
+    if (r && c.status === "offline" && tolOk) out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} parou de responder.` });
     r = on("cpu_high");
     if (r && (c.cpu_load ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `cpu:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *CPU alta*\n${c.nome}: ${c.cpu_load}% (limite ${r.threshold}%)` });
     r = on("memory_high");
@@ -60,17 +61,18 @@ async function collectAlerts(rules: Map<string, Rule>) {
   let r = on("online_drop");
   if (r && r.threshold > 0) {
     const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true);
-    if ((count ?? 0) < r.threshold) out.push({ key: r.rule_key, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
+    if ((count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
   }
   r = on("mass_disconnect");
   if (r) {
-    const since = new Date(Date.now() - 5 * 60000).toISOString();
+    const win = Math.max(1, r.window_minutes ?? 5);
+    const since = new Date(Date.now() - win * 60000).toISOString();
     const { data } = await sb.from("eventos").select("concentrador_id").eq("tipo", "disconnect").gte("created_at", since);
     const by = new Map<string, number>();
     for (const e of data ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + 1);
     for (const [cid, n] of by) if (n >= r.threshold) {
       const nome = (concs ?? []).find((c) => c.id === cid)?.nome ?? "concentrador";
-      out.push({ key: r.rule_key, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos 5 min em ${nome}.` });
+      out.push({ key: r.rule_key, critical: true, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos ${win} min em ${nome}.` });
     }
   }
   r = on("client_unstable");
