@@ -18,6 +18,7 @@ import ClienteDetalhe from "./pages/ClienteDetalhe";
 import Alertas from "./pages/Alertas";
 import Eventos from "./pages/Eventos";
 import Metricas from "./pages/Metricas";
+import Analise from "./pages/Analise";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound.tsx";
 
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/eventos" element={<Eventos />} />
               <Route path="/metricas" element={<Metricas />} />
+              <Route path="/analise" element={<Analise />} />
               <Route
                 path="/admin"
                 element={
