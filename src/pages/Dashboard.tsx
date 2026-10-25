@@ -8,6 +8,9 @@ import { Card } from "@/components/ui/card";
 import { useRealtimeInvalidate } from "@/hooks/useRealtimeInvalidate";
 import { timeAgo } from "@/lib/format";
 import { DashboardVpnCard } from "@/components/DashboardVpnCard";
+import { Button } from "@/components/ui/button";
+import { useCollectionHealth } from "@/components/CollectionHealthBadge";
+import { healthLabel } from "@/lib/collectionHealth";
 
 const KEY_DASH = ["dashboard"] as const;
 
@@ -86,7 +89,7 @@ export default function Dashboard() {
           value={totalOnline.toLocaleString("pt-BR")}
           tone="online"
           icon={<Users className="h-5 w-5" />}
-          hint={`${totalOffline} offline nas últimas 24h`}
+          hint={`${data?.summary?.disconnected_24h_clients ?? 0} clientes com queda individual nas últimas 24h · ${healthLabel[health.state]}`}
         />
         <MetricCard
           label="Concentradores"
@@ -117,13 +120,18 @@ export default function Dashboard() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Conexões PPPoE — últimos 24 minutos
+                Conexões PPPoE — últimas 24 horas
               </h2>
-              <p className="text-xs text-muted-foreground">Atualização automática a cada 15s</p>
+              <p className="text-xs text-muted-foreground">Um ponto a cada 5 minutos, somando todos os concentradores</p>
             </div>
             <Activity className="h-4 w-4 text-primary" />
           </div>
           <div className="h-64">
+            {series.length < 2 ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Histórico em formação
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={series}>
                 <defs>
@@ -146,6 +154,7 @@ export default function Dashboard() {
                 <Area type="monotone" dataKey="online" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#g1)" />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </Card>
 
@@ -158,7 +167,7 @@ export default function Dashboard() {
             {(data?.alertas ?? []).length === 0 && (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum alerta ativo 🎉</p>
             )}
-            {(data?.alertas ?? []).slice(0, 6).map((a) => (
+            {attention.slice(0, 6).map((a) => (
               <div
                 key={a.id}
                 className={`rounded-md border p-3 text-sm ${
