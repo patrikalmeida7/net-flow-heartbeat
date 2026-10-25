@@ -38,6 +38,8 @@ async function fetchInterfaces() {
     supabase.from("concentradores").select("id, nome"),
     supabase.from("rbs").select("id, nome"),
   ]);
+  if (ifaces.error) throw ifaces.error;
+  if (concs.error) throw concs.error;
   return {
     ifaces: (ifaces.data ?? []) as Iface[],
     concById: new Map((concs.data ?? []).map((c) => [c.id, c.nome as string])),
@@ -47,7 +49,7 @@ async function fetchInterfaces() {
 
 async function fetchInterfaceSeries(ifaceId: string) {
   const since = new Date(Date.now() - 30 * 60_000).toISOString();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("metric_samples")
     .select("collected_at, kind, value")
     .eq("interface_id", ifaceId)
@@ -55,6 +57,7 @@ async function fetchInterfaceSeries(ifaceId: string) {
     .gte("collected_at", since)
     .order("collected_at", { ascending: true })
     .limit(2000);
+  if (error) throw error;
   return (data ?? []) as Sample[];
 }
 
@@ -69,14 +72,17 @@ async function fetchDeviceSeries(opts: { concentrador_id?: string; rbs_id?: stri
     .limit(2000);
   if (opts.concentrador_id) q = q.eq("concentrador_id", opts.concentrador_id);
   if (opts.rbs_id) q = q.eq("rbs_id", opts.rbs_id);
-  return ((await q).data ?? []) as Sample[];
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as Sample[];
 }
 
 export default function Metricas() {
   useRealtimeInvalidate("metric_samples", KEY_BASE);
   useRealtimeInvalidate("device_interfaces", KEY_BASE);
 
-  const { data } = useQuery({ queryKey: [...KEY_BASE, "ifaces"], queryFn: fetchInterfaces });
+  const ifq = useQuery({ queryKey: [...KEY_BASE, "ifaces"], queryFn: fetchInterfaces, refetchInterval: 30000 });
+  const data = ifq.data;
   const ifaces = data?.ifaces ?? [];
 
   const [selectedIfaceId, setSelectedIfaceId] = useState<string>("");
@@ -96,14 +102,14 @@ export default function Metricas() {
       : data?.rbsById.get(selected.rbs_id ?? "") ?? "—"
     : "—";
 
-  const { data: ifaceSamples } = useQuery({
+  const { data: ifaceSamples, isError: ifaceErr, refetch: refetchIface, isLoading: ifaceLoading } = useQuery({
     queryKey: [...KEY_BASE, "iface", selectedIfaceId],
     queryFn: () => fetchInterfaceSeries(selectedIfaceId),
     enabled: !!selectedIfaceId,
     refetchInterval: 5000,
   });
 
-  const { data: deviceSamples } = useQuery({
+  const { data: deviceSamples, isError: devErr, refetch: refetchDev } = useQuery({
     queryKey: [...KEY_BASE, "device", selected?.concentrador_id ?? selected?.rbs_id],
     queryFn: () =>
       fetchDeviceSeries(
@@ -115,7 +121,7 @@ export default function Metricas() {
 
   // Pivota samples por timestamp para o gráfico
   const trafficSeries = useMemo(() => {
-    const m = new Map<string, { time: string; ts: number; in_bps: number; out_bps: number }>();
+    const m = new Map<string, { time: string; ts: number; in_bps: number | null; out_bps: number | null }>();
     for (const s of ifaceSamples ?? []) {
       const ts = new Date(s.collected_at).getTime();
       const key = s.collected_at;
@@ -123,8 +129,8 @@ export default function Metricas() {
         m.set(key, {
           time: new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
           ts,
-          in_bps: 0,
-          out_bps: 0,
+          in_bps: null,
+          out_bps: null,
         });
       }
       const row = m.get(key)!;
@@ -154,8 +160,19 @@ export default function Metricas() {
   }, [deviceSamples]);
 
   const last = trafficSeries[trafficSeries.length - 1];
-  const peakIn = trafficSeries.reduce((a, b) => Math.max(a, b.in_bps), 0);
-  const peakOut = trafficSeries.reduce((a, b) => Math.max(a, b.out_bps), 0);
+  const peakOf = (k: "in_bps" | "out_bps") => {
+    const v = trafficSeries.map((r) => r[k]).filter((x): x is number => x != null);
+    return v.length ? Math.max(...v) : null;
+  };
+  const peakIn = peakOf("in_bps");
+  const peakOut = peakOf("out_bps");
+  // Frescor: amostra de tráfego mais recente vs. intervalo de coleta (~30s)
+  const lastTs = last?.ts ?? null;
+  const ageMs = lastTs ? Date.now() - lastTs : null;
+  const fresh = ageMs == null ? "Sem dados" : ageMs > 10 * 60_000 ? "Falha de coleta" : ageMs > 2 * 60_000 ? "Dados atrasados" : "Coleta em dia";
+  const showBps = (v: number | null | undefined) => (v == null ? "Sem dados" : formatBps(v));
+  const lastCpu = cpuMemSeries.filter((r) => r.cpu != null).pop()?.cpu;
+  const lastMem = cpuMemSeries.filter((r) => r.mem != null).pop()?.mem;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -165,6 +182,23 @@ export default function Metricas() {
           Tráfego, CPU e memória em tempo real. Atualização automática via WebSocket.
         </p>
       </div>
+
+      {ifq.isError && (
+        <Card className="p-4 text-sm">
+          Erro ao carregar interfaces. <button className="text-primary underline" onClick={() => ifq.refetch()}>Tentar novamente</button>
+        </Card>
+      )}
+      {!ifq.isError && !ifq.isLoading && ifaces.length === 0 && (
+        <Card className="p-4 text-sm text-muted-foreground">
+          Nenhuma interface recebida ainda do coletor (SNMP ou API). Tráfego aparece aqui quando a primeira amostra chegar.
+        </Card>
+      )}
+      {selected && (
+        <p className="text-xs text-muted-foreground">
+          Estado do tráfego: <span className="font-medium text-foreground">{fresh}</span>
+          {lastTs ? ` · última amostra ${timeAgo(new Date(lastTs).toISOString())}` : ""}
+        </p>
+      )}
 
       {/* Seletor de interface */}
       <Card className="bg-gradient-card p-4 shadow-card">
@@ -208,22 +242,22 @@ export default function Metricas() {
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
             <TrendingDown className="h-3.5 w-3.5" /> Download atual
           </div>
-          <div className="mt-2 font-mono text-2xl font-semibold">{formatBps(last?.in_bps ?? 0)}</div>
-          <div className="text-xs text-muted-foreground">Pico (30min): {formatBps(peakIn)}</div>
+          <div className="mt-2 font-mono text-2xl font-semibold">{showBps(last?.in_bps)}</div>
+          <div className="text-xs text-muted-foreground">Pico (30min): {showBps(peakIn)}</div>
         </Card>
         <Card className="bg-gradient-card p-4 shadow-card">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
             <TrendingUp className="h-3.5 w-3.5" /> Upload atual
           </div>
-          <div className="mt-2 font-mono text-2xl font-semibold">{formatBps(last?.out_bps ?? 0)}</div>
-          <div className="text-xs text-muted-foreground">Pico (30min): {formatBps(peakOut)}</div>
+          <div className="mt-2 font-mono text-2xl font-semibold">{showBps(last?.out_bps)}</div>
+          <div className="text-xs text-muted-foreground">Pico (30min): {showBps(peakOut)}</div>
         </Card>
         <Card className="bg-gradient-card p-4 shadow-card">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
             <Cpu className="h-3.5 w-3.5" /> CPU
           </div>
           <div className="mt-2 font-mono text-2xl font-semibold">
-            {cpuMemSeries[cpuMemSeries.length - 1]?.cpu?.toFixed(0) ?? "—"}%
+            {lastCpu != null ? `${lastCpu.toFixed(0)}%` : "Sem dados"}
           </div>
         </Card>
         <Card className="bg-gradient-card p-4 shadow-card">
@@ -231,7 +265,7 @@ export default function Metricas() {
             <HardDrive className="h-3.5 w-3.5" /> Memória
           </div>
           <div className="mt-2 font-mono text-2xl font-semibold">
-            {cpuMemSeries[cpuMemSeries.length - 1]?.mem?.toFixed(0) ?? "—"}%
+            {lastMem != null ? `${lastMem.toFixed(0)}%` : "Sem dados"}
           </div>
         </Card>
       </div>
@@ -248,9 +282,16 @@ export default function Metricas() {
           <Activity className="h-4 w-4 text-primary" />
         </div>
         <div className="h-72">
-          {trafficSeries.length === 0 ? (
+          {ifaceErr ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
+              Erro ao carregar o tráfego.
+              <button className="text-primary underline" onClick={() => refetchIface()}>Tentar novamente</button>
+            </div>
+          ) : ifaceLoading && selectedIfaceId ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Carregando…</div>
+          ) : trafficSeries.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Sem amostras ainda. Aguardando agente coletor SNMP enviar dados…
+              Sem amostras de tráfego nos últimos 30 minutos para esta interface.
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -300,9 +341,14 @@ export default function Metricas() {
           </div>
         </div>
         <div className="h-56">
-          {cpuMemSeries.length === 0 ? (
+          {devErr ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
+              Erro ao carregar CPU/memória.
+              <button className="text-primary underline" onClick={() => refetchDev()}>Tentar novamente</button>
+            </div>
+          ) : cpuMemSeries.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Sem amostras ainda.
+              Sem amostras de CPU/memória na última hora.
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
