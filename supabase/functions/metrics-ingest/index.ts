@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
     if(valid) patch.snmp_last_success_at=collectedAt;
     if(concentrador_id) {
       patch.last_collect_attempt_at=collectedAt;patch.last_collect_error=errText;
-      patch.offline_since=valid ? null : (previous as any)?.offline_since ?? collectedAt;
+      patch.offline_since=valid ? null : previous?.snmp_status === "unreachable" ? (previous as any)?.offline_since ?? collectedAt : collectedAt;
       if(valid) {patch.ultima_coleta=collectedAt;patch.cpu_load=dev.cpu_load ?? null;patch.memory_used_pct=dev.memory_used_pct ?? null;patch.uptime_seconds=dev.uptime_seconds;}
     } else if(valid) patch.ultima_coleta=collectedAt;
     const {error: healthErr}=await supabase.from(table).update(patch).eq("id",targetId);

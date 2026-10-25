@@ -33,7 +33,7 @@ export async function buildVars(sb: any, rep: Pick<Report, "nome" | "concentrado
   const topQ = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => [k.split("|").slice(1).join("|"), n] as const);
   const cs = concs.data ?? [];
   const c0 = cs[0];
-  const avg = (k: string) => cs.length ? Math.round(cs.reduce((a: number, c: any) => a + (c[k] ?? 0), 0) / cs.length) : 0;
+  const avg = (k: string) => { const valid=cs.filter((c:any)=>c[k]!=null && c.snmp_last_success_at && Date.now()-Date.parse(c.snmp_last_success_at)<=120000); return valid.length ? Math.round(valid.reduce((a:number,c:any)=>a+c[k],0)/valid.length) : "Sem dados"; };
   const t = top.data?.[0];
   const vars: Record<string, string | number> = {
     nome_relatorio: rep.nome,
@@ -49,8 +49,8 @@ export async function buildVars(sb: any, rep: Pick<Report, "nome" | "concentrado
     top_consumidor_gb: t && t.bytes_in != null && t.bytes_out != null ? ((t.bytes_in+t.bytes_out)/1e9).toFixed(1) : "Sem dados",
     concentrador_nome: cid ? c0?.nome ?? "-" : cs.length === 1 ? c0.nome : "Toda a rede",
     concentrador_status: cid || cs.length === 1 ? (c0?.snmp_status === "online" && c0.snmp_last_success_at && Date.now()-Date.parse(c0.snmp_last_success_at)<120000 ? "SNMP online" : "Sem confirmação SNMP recente") : "Consulte frescor SNMP por equipamento",
-    cpu_uso: cid || cs.length === 1 ? c0?.cpu_load ?? 0 : avg("cpu_load"),
-    memoria_uso: cid || cs.length === 1 ? c0?.memory_used_pct ?? 0 : avg("memory_used_pct"),
+    cpu_uso: cid || cs.length === 1 ? c0?.snmp_last_success_at && Date.now()-Date.parse(c0.snmp_last_success_at)<=120000 ? c0.cpu_load ?? "Sem dados" : "Sem dados" : avg("cpu_load"),
+    memoria_uso: cid || cs.length === 1 ? c0?.snmp_last_success_at && Date.now()-Date.parse(c0.snmp_last_success_at)<=120000 ? c0.memory_used_pct ?? "Sem dados" : "Sem dados" : avg("memory_used_pct"),
     concentradores_lista: cs.map((c: any) => `${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.api_last_success_at ? c.usuarios_online : "Sem dados"} na fotografia API`).join("\n") || "-",
     top_quedas: topQ.map(([u, n], i) => `${i + 1}. ${u} — ${n}`).join("\n") || "Nenhuma queda",
     janela: rep.condition_window_minutes,
