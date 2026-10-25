@@ -35,13 +35,8 @@ Deno.serve(async (req) => {
     if (claimsErr || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
 
     const userId = claimsData.claims.sub;
-    const { data: roleRow } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("role", "admin")
-      .maybeSingle();
-    if (!roleRow) return json({ error: "forbidden" }, 403);
+    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+    if (!isAdmin) return json({ error: "forbidden" }, 403);
 
     const body = await req.json().catch(() => ({}));
     const clientId = body?.client_id as string | undefined;
