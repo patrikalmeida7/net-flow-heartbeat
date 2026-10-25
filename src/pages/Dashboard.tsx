@@ -11,54 +11,66 @@ import { DashboardVpnCard } from "@/components/DashboardVpnCard";
 
 const KEY_DASH = ["dashboard"] as const;
 
+type Summary = {
+  online_now: number;
+  disconnected_24h_clients: number;
+  mass_incidents_24h: number;
+  last_collect_at: string | null;
+};
+
 async function fetchDashboard() {
-  const [conc, rbs, sessions, alerts, events] = await Promise.all([
+  const [conc, rbs, summary, history, alerts, events] = await Promise.all([
     supabase.from("concentradores").select("*").order("nome"),
     supabase.from("rbs").select("*").order("nome"),
-    supabase.from("pppoe_sessions").select("id, online", { count: "exact", head: false }),
+    supabase.rpc("dashboard_summary"),
+    supabase.rpc("connection_history", { _hours: 24 }),
     supabase.from("alertas").select("*").eq("status", "active").order("created_at", { ascending: false }),
     supabase.from("eventos").select("*").order("created_at", { ascending: false }).limit(8),
   ]);
+  const err = conc.error || rbs.error || summary.error || history.error || alerts.error || events.error;
+  if (err) throw err;
   return {
     concentradores: conc.data ?? [],
     rbs: rbs.data ?? [],
-    sessions: sessions.data ?? [],
+    summary: summary.data as unknown as Summary,
+    history: (history.data ?? []).map((h) => ({
+      time: new Date(h.bucket_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      online: Number(h.online),
+    })),
     alertas: alerts.data ?? [],
     eventos: events.data ?? [],
   };
 }
 
-// Mock series — fica realista até o agente coletor preencher
-function makeSeries(base: number) {
-  const now = Date.now();
-  return Array.from({ length: 24 }, (_, i) => {
-    const t = new Date(now - (23 - i) * 60_000);
-    const variance = Math.sin(i / 2) * 60 + (Math.random() - 0.5) * 30;
-    return {
-      time: t.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-      online: Math.max(0, Math.round(base + variance)),
-    };
-  });
-}
+const sevRank = { critical: 0, warning: 1, info: 2 } as const;
 
 export default function Dashboard() {
   useRealtimeInvalidate("concentradores", KEY_DASH);
   useRealtimeInvalidate("rbs", KEY_DASH);
-  useRealtimeInvalidate("pppoe_sessions", KEY_DASH);
   useRealtimeInvalidate("alertas", KEY_DASH);
-  useRealtimeInvalidate("eventos", KEY_DASH);
 
-  const { data } = useQuery({ queryKey: KEY_DASH, queryFn: fetchDashboard, refetchInterval: 15000 });
+  const { data, isError, refetch } = useQuery({ queryKey: KEY_DASH, queryFn: fetchDashboard, refetchInterval: 15000 });
+  const health = useCollectionHealth();
 
-  const totalOnline = (data?.sessions ?? []).filter((s) => s.online).length;
-  const totalOffline = (data?.sessions ?? []).filter((s) => !s.online).length;
+  const totalOnline = data?.summary?.online_now ?? 0;
   const concOnline = (data?.concentradores ?? []).filter((c) => c.status === "online").length;
   const concOffline = (data?.concentradores ?? []).filter((c) => c.status === "offline").length;
   const rbsOnline = (data?.rbs ?? []).filter((r) => r.status === "online").length;
   const rbsOffline = (data?.rbs ?? []).filter((r) => r.status === "offline").length;
   const alertasCriticos = (data?.alertas ?? []).filter((a) => a.severidade === "critical").length;
+  const attention = [...(data?.alertas ?? [])].sort(
+    (a, b) => sevRank[a.severidade] - sevRank[b.severidade] || a.created_at.localeCompare(b.created_at),
+  );
+  const series = data?.history ?? [];
 
-  const series = makeSeries(totalOnline || 800);
+  if (isError) {
+    return (
+      <Card className="p-6 text-center">
+        <p className="mb-3 text-sm">Não foi possível carregar a dashboard.</p>
+        <Button variant="outline" onClick={() => refetch()}>Tentar novamente</Button>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
