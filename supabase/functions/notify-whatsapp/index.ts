@@ -131,10 +131,21 @@ Deno.serve(async (req) => {
       if (!isAdmin) return json({ error: "apenas administradores" }, 403);
     }
 
-    const { data: s } = await sb.from("notification_settings").select("*").limit(1).maybeSingle();
-    if (!s) return json({ error: "Configure o MultixZap primeiro" }, 400);
+    let { data: s } = await sb.from("notification_settings").select("*").limit(1).maybeSingle();
+    if (!s && action !== "run") {
+      const ins = await sb.from("notification_settings").insert({}).select("*").single();
+      s = ins.data;
+    }
+    if (!s) return json({ ok: true, skipped: "sem configuração" });
+    // Servidor WhatsApp nativo da plataforma (Evolution API): usado quando o cliente não tem servidor próprio.
+    s = {
+      ...s,
+      api_url: s.api_url || Deno.env.get("EVOLUTION_API_URL") || null,
+      api_token: s.api_token || Deno.env.get("EVOLUTION_API_KEY") || null,
+      instance: s.instance || `noc_${String(s.organization_id ?? s.id).replace(/-/g, "").slice(0, 12)}`,
+    };
     if (action.startsWith("wa_")) {
-      if (!s.api_url || !s.api_token || !s.instance) return json({ error: "Preencha endereço, token e instância e clique em Salvar" }, 400);
+      if (!s.api_url || !s.api_token) return json({ error: "Servidor WhatsApp da plataforma ainda não configurado" }, 400);
       const base = s.api_url.replace(/\/+$/, "");
       const inst = encodeURIComponent(s.instance);
       const h = { "Content-Type": "application/json", apikey: s.api_token, Authorization: `Bearer ${s.api_token}` };

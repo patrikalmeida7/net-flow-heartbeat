@@ -234,14 +234,11 @@ export default function Relatorios() {
           <TabsContent value="conexao">
             <Card className="bg-gradient-card p-5 shadow-card">
               <div className="mb-4 flex items-center gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">MultixZap</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">WhatsApp da sua empresa</h2>
                 <label className="ml-auto flex items-center gap-2 text-sm"><Switch checked={s.enabled} onCheckedChange={(v) => setS({ ...s, enabled: v })} />Envio automático</label>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div><Label>Endereço da API</Label><Input placeholder="https://api.multixzap.com.br" value={s.api_url} onChange={(e) => setS({ ...s, api_url: e.target.value })} /></div>
-                <div><Label>Instância</Label><Input placeholder="noc" value={s.instance} onChange={(e) => setS({ ...s, instance: e.target.value })} /></div>
-                <div><Label>Token / API Key</Label><Input type="password" value={s.api_token} onChange={(e) => setS({ ...s, api_token: e.target.value })} /></div>
-              </div>
+              <p className="mb-4 text-sm text-muted-foreground">Basta conectar seu WhatsApp pelo QR Code. O servidor de envio já vem pronto.</p>
+              <div className="mb-4"><WhatsAppConnect ready /></div>
               <div className="mt-4">
                 <Label>Quem recebe os avisos</Label>
                 <div className="mt-1 flex gap-2">
