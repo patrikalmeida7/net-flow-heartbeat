@@ -311,6 +311,8 @@ Deno.serve(async (req) => {
           tipo: "device_up",
           concentrador_id: concentradorId,
           descricao: `Concentrador ${c.nome ?? c.host} voltou online`,
+          // Preserva o início do episódio (offline_since é zerado nesta mesma coleta)
+          metadata: { offline_since: existing?.offline_since ?? null, recovered_at: now, usuarios_online: incomingOnline.size },
         });
       }
     }
