@@ -8,6 +8,13 @@
       "when": 1792502128197,
       "tag": "0000_saas_mikrotik_api",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792933544576,
+      "tag": "0001_fix_generichash_signature",
+      "breakpoints": true
     }
   ]
 }
