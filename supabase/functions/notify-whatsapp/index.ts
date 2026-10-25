@@ -150,7 +150,39 @@ async function collectAlerts(rules: Map<string, Rule>) {
     const { data } = await sb.from("alertas").select("id,titulo,descricao").eq("severidade", "critical").eq("status", "active").gte("created_at", since);
     for (const a of data ?? []) out.push({ key: r.rule_key, dedupe: `alerta:${a.id}`, cooldown: 100000, text: `🚨 *${a.titulo}*\n${a.descricao ?? ""}` });
   }
+  r = on("concentrador_up");
+  if (r) {
+    // Baseline = última alteração da regra: ao ativar, eventos antigos não são enviados.
+    const baseline = (r as Rule & { updated_at?: string }).updated_at ?? new Date().toISOString();
+    const { data: ev } = await sb.from("eventos").select("id,concentrador_id,created_at,metadata").eq("tipo", "device_up").gte("created_at", baseline).limit(200);
+    for (const x of recoveryCandidates((ev ?? []) as UpEvent[], (concs ?? []) as ConcState[], baseline))
+      out.push({ key: r.rule_key, critical: true, dedupe: x.dedupe, cooldown: 0, text: x.text });
+  }
   return out;
+}
+
+async function buildHealth() {
+  const fresh = new Date(Date.now() - FRESH_MS).toISOString();
+  const [{ data: concs }, { count: clients }, { count: crit }] = await Promise.all([
+    sb.from("concentradores").select("id,nome,status,ultima_coleta,usuarios_online"),
+    sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh),
+    sb.from("alertas").select("id", { count: "exact", head: true }).eq("severidade", "critical").eq("status", "active"),
+  ]);
+  return healthSummary({ concs: (concs ?? []) as ConcState[], confirmedClients: clients ?? null, criticalAlerts: crit ?? 0 });
+}
+
+function simulateTexts() {
+  const now = Date.now();
+  const since = new Date(now - 42 * 60000).toISOString(), up = new Date(now - 60000).toISOString();
+  const rec = recoveryCandidates(
+    [{ id: "sim", concentrador_id: "sim", created_at: up, metadata: { offline_since: since } }],
+    [{ id: "sim", nome: "CONCENTRADOR EXEMPLO", status: "online", ultima_coleta: new Date(now).toISOString(), usuarios_online: 250 }],
+    new Date(now - 3600000).toISOString(), now,
+  )[0];
+  return [
+    `🔴 *Concentrador offline*\nCONCENTRADOR EXEMPLO sem resposta desde ${fmtBahia(since)}.`,
+    rec?.text ?? "",
+  ];
 }
 
 async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário NOC") {
