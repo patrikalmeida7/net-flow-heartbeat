@@ -19,6 +19,7 @@ import Alertas from "./pages/Alertas";
 import Eventos from "./pages/Eventos";
 import Metricas from "./pages/Metricas";
 import Analise from "./pages/Analise";
+import Relatorios from "./pages/Relatorios";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound.tsx";
 
@@ -51,6 +52,7 @@ const App = () => (
               <Route path="/eventos" element={<Eventos />} />
               <Route path="/metricas" element={<Metricas />} />
               <Route path="/analise" element={<Analise />} />
+              <Route path="/relatorios" element={<Relatorios />} />
               <Route
                 path="/admin"
                 element={
