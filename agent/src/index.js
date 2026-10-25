@@ -332,8 +332,13 @@ async function tickRouterOs() {
 }
 
 // ---------- Loop SNMP (concentradores + RBS) ----------
+let snmpBusy = false;
 async function tickSnmp() {
-  if (!metrics_ingest_url) return;
+  if (!metrics_ingest_url || snmpBusy) return;
+  snmpBusy = true;
+  try { await tickSnmpInner(); } finally { snmpBusy = false; }
+}
+async function tickSnmpInner() {
   const targets = [
     ...concentradores
       .filter((c) => c.snmp?.enabled)
@@ -348,7 +353,7 @@ async function tickSnmp() {
     targets.map(async (t) => {
       const base = t.kind === "concentrador" ? { concentrador_host: t.host } : { rbs_host: t.host };
       try {
-        const data = await collectSnmp(t.host, t.snmp);
+        const data = await withTimeout(collectSnmp(t.host, t.snmp), 30000, `SNMP ${t.nome || t.host}`);
         return { ...base, ...data };
       } catch (err) {
         log("ERROR", `SNMP ✗ ${t.nome || t.host}: ${err.message}`);
@@ -363,6 +368,8 @@ async function tickSnmp() {
       devices,
     });
     log("INFO", `SNMP ✓ devices=${devices.length} samples=${res.samples_inserted} ifaces=${res.interfaces_upserted}`);
+    if (res.errors?.length) log("ERROR", "metrics-ingest gravou com erros:", res.errors.slice(0, 5).join(" | "));
+    if (res.devices_without_data) log("WARN", `SNMP: ${res.devices_without_data} equipamento(s) responderam sem métricas`);
     touchHealth();
   } catch (err) {
     log("ERROR", "SNMP envio falhou:", err.message);
