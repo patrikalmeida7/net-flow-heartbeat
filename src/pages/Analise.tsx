@@ -38,7 +38,8 @@ async function fetchAnalise() {
 }
 
 export default function Analise() {
-  const { data } = useQuery({ queryKey: ["analise"], queryFn: fetchAnalise, refetchInterval: 30000 });
+  const { data, isError, refetch } = useQuery({ queryKey: ["analise"], queryFn: fetchAnalise, refetchInterval: 30000 });
+  if (isError) return <Card><QueryError onRetry={() => refetch()} what="a análise" /></Card>;
   const gb = (v: number) => +(v / 1024 ** 3).toFixed(2);
 
   return (
@@ -49,9 +50,9 @@ export default function Analise() {
       </div>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <MetricCard label="Clientes online" value={data?.online ?? 0} icon={<Users className="h-4 w-4" />} tone="online" />
-        <MetricCard label="Quedas 24h" value={data?.totalQuedas ?? 0} icon={<WifiOff className="h-4 w-4" />} tone="offline" />
-        <MetricCard label="Clientes instáveis (3+)" value={data?.instaveis ?? 0} icon={<Activity className="h-4 w-4" />} tone="warning" />
+        <MetricCard label="Clientes online (confirmados)" value={data ? data.online : "—"} icon={<Users className="h-4 w-4" />} tone="online" />
+        <MetricCard label="Quedas individuais 24h" value={data ? data.totalQuedas : "—"} icon={<WifiOff className="h-4 w-4" />} tone="offline" hint={data ? `${data.mass} quedas em massa (${data.massAffected} clientes afetados)` : undefined} />
+        <MetricCard label="Clientes instáveis (3+)" value={data ? data.instaveis : "—"} icon={<Activity className="h-4 w-4" />} tone="warning" />
         <MetricCard label="Maior consumo" value={data?.topBanda[0] ? formatBytes(data.topBanda[0].total) : "—"} icon={<Download className="h-4 w-4" />} tone="primary" />
       </div>
 
@@ -72,7 +73,7 @@ export default function Analise() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
-          <h2 className="mb-3 font-medium">Top 10 — mais desconexões</h2>
+          <h2 className="mb-3 font-medium">Top 10 — mais quedas individuais</h2>
           {data?.topQuedas.length ? (
             <div className="h-72">
               <ResponsiveContainer>
@@ -87,8 +88,8 @@ export default function Analise() {
           ) : <p className="text-sm text-muted-foreground">Nenhuma queda nas últimas 24h.</p>}
           <ul className="mt-3 space-y-1 text-sm">
             {data?.topQuedas.map((c) => (
-              <li key={c.username} className="flex justify-between">
-                <Link to={`/pppoe/${encodeURIComponent(c.username)}`} className="hover:underline">{c.username}</Link>
+              <li key={c.key} className="flex justify-between">
+                <Link to={clientPath(c.concentrador_id, c.username)} className="hover:underline">{c.username}</Link>
                 <span className="font-mono text-destructive">{c.quedas}</span>
               </li>
             ))}
@@ -112,8 +113,8 @@ export default function Analise() {
               </div>
               <ul className="mt-3 space-y-1 text-sm">
                 {data.topBanda.map((c) => (
-                  <li key={c.username} className="flex justify-between">
-                    <Link to={`/pppoe/${encodeURIComponent(c.username)}`} className="hover:underline">{c.username}</Link>
+                  <li key={c.key} className="flex justify-between">
+                    <Link to={clientPath(c.concentrador_id, c.username)} className="hover:underline">{c.username}</Link>
                     <span className="font-mono">{formatBytes(c.total)}</span>
                   </li>
                 ))}
