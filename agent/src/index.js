@@ -97,6 +97,7 @@ async function reportDynamic(results) {
       method: "POST",
       headers: { Authorization: `Bearer ${MK_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({ results }),
+      signal: AbortSignal.timeout(request_timeout_ms),
     });
   } catch { /* noop */ }
 }

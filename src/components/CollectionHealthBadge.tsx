@@ -15,7 +15,7 @@ export function useCollectionHealth() {
       ]);
       if (c.error) throw c.error;
       const agentSeen = (a.data ?? []).map((x) => x.last_seen_at).filter(Boolean).sort().pop() ?? null;
-      return { devices: (c.data ?? []).map((d)=>({...d,ultima_coleta:d.snmp_last_success_at,status:d.snmp_status === "unreachable" ? "unknown" : d.status})), agentSeen };
+      return { devices: (c.data ?? []).map((d)=>({...d,ultima_coleta:d.snmp_last_success_at,status:d.snmp_status === "unreachable" ? "offline" : "online"})), agentSeen };
     },
   });
   const h = devicesHealth(q.data?.devices ?? []);
