@@ -29,6 +29,9 @@ interface IfSample {
 interface DevicePayload {
   // Identificação (use exatamente um)
   concentrador_host?: string;
+  concentrador_id?: string;
+  rbs_id?: string;
+  snmp_valid?: boolean;
   rbs_host?: string;
   // Métricas globais
   cpu_load?: number;
@@ -45,6 +48,7 @@ interface DevicePayload {
 
 interface IngestPayload {
   collected_at?: string;
+  source?: "snmp" | "routeros_snapshot";
   devices: DevicePayload[];
 }
 
@@ -60,6 +64,7 @@ Deno.serve(async (req) => {
   const expected = Deno.env.get("AGENT_INGEST_TOKEN");
   const bearer = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1];
   const got = (req.headers.get("x-agent-token") || bearer || "").trim();
+  let agentId: string | null = null;
   let authorized = !!got && !!expected && got === expected;
   if (!authorized && got) {
     const sbAuth = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
@@ -67,6 +72,7 @@ Deno.serve(async (req) => {
     const hash = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
     const { data: agent } = await sbAuth.from("agents").select("id, enabled").eq("token_hash", hash).maybeSingle();
     authorized = !!agent?.enabled;
+    if (agent?.enabled) agentId = agent.id;
   }
   if (!authorized) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -99,6 +105,7 @@ Deno.serve(async (req) => {
   }
 
   const collectedAt = body.collected_at ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(collectedAt)) || Math.abs(Date.now()-Date.parse(collectedAt))>120000) return new Response(JSON.stringify({error:"Stale/invalid collected_at"}),{status:400,headers:{...corsHeaders,"Content-Type":"application/json"}});
   const collectedAtMs = new Date(collectedAt).getTime();
 
   // Pré-carrega mapas host → id
@@ -114,8 +121,8 @@ Deno.serve(async (req) => {
   const errors: string[] = [];
 
   for (const dev of body.devices) {
-    const concentrador_id = dev.concentrador_host ? concByHost.get(dev.concentrador_host) ?? null : null;
-    const rbs_id = dev.rbs_host ? rbsByHost.get(dev.rbs_host) ?? null : null;
+    const concentrador_id = dev.concentrador_id ?? (dev.concentrador_host ? concByHost.get(dev.concentrador_host) ?? null : null);
+    const rbs_id = dev.rbs_id ?? (dev.rbs_host ? rbsByHost.get(dev.rbs_host) ?? null : null);
 
     if (!concentrador_id && !rbs_id) {
       errors.push(`device sem alvo conhecido: ${dev.concentrador_host ?? dev.rbs_host ?? "?"}`);
@@ -125,40 +132,51 @@ Deno.serve(async (req) => {
     const target = concentrador_id ? { concentrador_id } : { rbs_id };
     const samples: Array<Record<string, unknown>> = [];
 
-    // Atualiza erro / last_poll_at na credencial
-    {
-      const credFilter = concentrador_id
-        ? { concentrador_id }
-        : { rbs_id: rbs_id! };
-      await supabase
-        .from("snmp_credentials")
-        .update({ last_poll_at: collectedAt, last_error: dev.snmp_error ?? null })
-        .match(credFilter);
+    const isApi=body.source === "routeros_snapshot";
+    if(agentId) {
+      const table=isApi ? "mikrotik_api_credentials" : "snmp_credentials";
+      const {data: assignment,error: assignmentErr}=await supabase.from(table).select("id,organization_id").eq("agent_id",agentId).match(target).eq("enabled",true).maybeSingle();
+      const {data: deviceOrg}=await supabase.from(concentrador_id ? "concentradores":"rbs").select("organization_id").eq("id",concentrador_id ?? rbs_id).maybeSingle();
+      const {data: owner}=await supabase.from("agents").select("organization_id").eq("id",agentId).maybeSingle();
+      if(assignmentErr || !assignment || assignment.organization_id !== owner?.organization_id || deviceOrg?.organization_id !== owner?.organization_id) {errors.push("Alvo não autorizado para este agente/empresa");continue;}
     }
-
-    // Concentrador: status/ultima_coleta pertencem à coleta API RouterOS (agent-ingest).
-    // SNMP só atualiza CPU/memória/uptime, para não esconder um coletor API parado.
-    if (concentrador_id) {
-      const patch: Record<string, unknown> = {};
-      if (typeof dev.cpu_load === "number") patch.cpu_load = Math.round(dev.cpu_load);
-      if (typeof dev.memory_used_pct === "number") patch.memory_used_pct = Math.round(dev.memory_used_pct);
-      if (typeof dev.uptime_seconds === "number") patch.uptime_seconds = Math.round(dev.uptime_seconds);
-      if (Object.keys(patch).length) {
-        const { error: cErr } = await supabase.from("concentradores").update(patch).eq("id", concentrador_id);
-        if (cErr) errors.push(`concentrador: ${cErr.message}`);
+    if(isApi) {
+      // RouterOS .id is not SNMP ifIndex. Store a separate photo, never delta/bps.
+      if(concentrador_id) {
+        const {error}=await supabase.from("concentradores").update({api_interfaces_snapshot:{collected_at:collectedAt,interfaces:dev.interfaces ?? []}}).eq("id",concentrador_id);
+        if(error) errors.push(error.message);
       }
-    } else if (rbs_id) {
-      const patch: Record<string, unknown> = { ultima_coleta: collectedAt };
-      if (typeof dev.ping_ms === "number") patch.ping_ms = Math.round(dev.ping_ms);
-      if (typeof dev.ping_loss_pct === "number") patch.perda_pct = Math.round(dev.ping_loss_pct);
-      if (!dev.snmp_error) patch.status = "online";
-      else patch.status = "offline";
-      await supabase.from("rbs").update(patch).eq("id", rbs_id);
+      continue;
     }
+    // Legacy source-less payloads are quarantined: cannot claim SNMP success or mix counters.
+    if(body.source !== "snmp") {errors.push("Atualize noc-agent: payload sem identificação de fonte");continue;}
+    const valid=dev.snmp_valid === true && !dev.snmp_error && typeof dev.uptime_seconds === "number" && Number.isFinite(dev.uptime_seconds);
+    const table=concentrador_id ? "concentradores":"rbs";
+    const targetId=concentrador_id ?? rbs_id;
+    const {data: previous,error: prevErr}=await supabase.from(table).select(concentrador_id ? "snmp_status,snmp_last_attempt_at,snmp_last_success_at,offline_since" : "snmp_status,snmp_last_attempt_at,snmp_last_success_at").eq("id",targetId).maybeSingle();
+    // RBS has no legacy offline_since; use its own source timestamps below.
+    if(prevErr && concentrador_id) {errors.push(prevErr.message);continue;}
+    const errText=valid ? null : dev.snmp_error ?? "SNMP sem resposta de sistema válida";
+    const patch:Record<string,unknown>={snmp_last_attempt_at:collectedAt,snmp_last_error:errText,snmp_status:valid ? "online":"unreachable",status:valid ? "online":"unknown"};
+    if(valid) patch.snmp_last_success_at=collectedAt;
+    if(concentrador_id) {
+      patch.last_collect_attempt_at=collectedAt;patch.last_collect_error=errText;
+      patch.offline_since=valid ? null : (previous as any)?.offline_since ?? collectedAt;
+      if(valid) {patch.ultima_coleta=collectedAt;patch.cpu_load=dev.cpu_load ?? null;patch.memory_used_pct=dev.memory_used_pct ?? null;patch.uptime_seconds=dev.uptime_seconds;}
+    } else if(valid) patch.ultima_coleta=collectedAt;
+    const {error: healthErr}=await supabase.from(table).update(patch).eq("id",targetId);
+    if(healthErr) {errors.push(healthErr.message);continue;}
+    const {error: credErr}=await supabase.from("snmp_credentials").update({last_poll_at:collectedAt,last_error:errText}).match(target);
+    if(credErr) errors.push(credErr.message);
+    if(concentrador_id && previous && ((valid && previous.snmp_status==="unreachable") || (!valid && previous.snmp_status==="online"))) {
+      const {error: eventErr}=await supabase.from("eventos").insert({tipo:valid ? "device_up":"device_down",concentrador_id,created_at:collectedAt,descricao:valid ? "Monitoramento SNMP recuperado":"SNMP indisponível; equipamento desligado não confirmado",metadata:{source:"snmp",scope:"monitoring",offline_since:(previous as any).offline_since ?? collectedAt,recovered_at:valid ? collectedAt:null}});
+      if(eventErr) errors.push(eventErr.message);
+    }
+    if(!valid) continue;
 
     // Métricas globais
     const pushMetric = (kind: string, value: number | null | undefined) => {
-      if (value == null || Number.isNaN(value)) return;
+      if (value == null || !Number.isFinite(value)) return;
       samples.push({ collected_at: collectedAt, kind, value, ...target });
     };
     pushMetric("cpu_load", dev.cpu_load);
@@ -173,7 +191,7 @@ Deno.serve(async (req) => {
       // Carrega interfaces atuais para calcular delta
       const { data: existing } = await supabase
         .from("device_interfaces")
-        .select("id, if_index, last_in_octets, last_out_octets, last_sample_at")
+        .select("id, if_index, last_in_octets, last_out_octets, last_sample_at, counter_source, last_device_uptime")
         .match(target);
       const byIdx = new Map((existing ?? []).map((i) => [i.if_index, i]));
 
@@ -182,6 +200,8 @@ Deno.serve(async (req) => {
         const upsertRow: Record<string, unknown> = {
           ...target,
           if_index: iface.if_index,
+          counter_source: "snmp",
+          last_device_uptime: dev.uptime_seconds,
           if_name: iface.if_name ?? null,
           if_descr: iface.if_descr ?? null,
           if_alias: iface.if_alias ?? null,
@@ -222,6 +242,8 @@ Deno.serve(async (req) => {
 
         // Calcula bps via delta de octets (somente se temos amostra anterior recente)
         if (
+          prev?.counter_source === "snmp" &&
+          prev.last_device_uptime != null && dev.uptime_seconds != null && dev.uptime_seconds >= Number(prev.last_device_uptime) &&
           prev?.last_sample_at &&
           prev.last_in_octets != null &&
           prev.last_out_octets != null &&
@@ -267,7 +289,7 @@ Deno.serve(async (req) => {
     if (samples.length) {
       // Insere em chunks de 500
       for (let i = 0; i < samples.length; i += 500) {
-        const chunk = samples.slice(i, i + 500);
+        const chunk = samples.slice(i, i + 500).map((s)=>({...s,source:"snmp"}));
         const { error } = await supabase.from("metric_samples").insert(chunk);
         if (error) errors.push(error.message);
         else samplesInserted += chunk.length;

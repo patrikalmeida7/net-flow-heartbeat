@@ -40,6 +40,8 @@ interface IngestPayload {
   sessions: SessionPayload[];
   collected_at?: string;
   error?: string;
+  source?: string;
+  concentrador_id?: string;
 }
 
 Deno.serve(async (req) => {
@@ -91,265 +93,47 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
     const c = body.concentrador;
 
-    // 1) Upsert concentrador (chave: host)
-    const { data: existing, error: selErr } = await supabase
-      .from("concentradores")
-      .select("id, status, usuarios_online, offline_since")
-      .eq("host", c.host)
-      .maybeSingle();
-
-    if (selErr) throw selErr;
-
-    let concentradorId: string;
-    let previousStatus: string | null = null;
-    let previousOnline = 0;
-
-    if (existing) {
-      concentradorId = existing.id;
-      previousStatus = existing.status;
-      previousOnline = existing.usuarios_online ?? 0;
-
-      const isOffline = c.status === "offline";
-      // Falha de coleta NÃO renova ultima_coleta; offline_since guarda o início contínuo da queda.
-      const patch: Record<string, unknown> = isOffline
-        ? {
-            status: "offline",
-            last_collect_attempt_at: now,
-            last_collect_error: body.error ?? "Sem resposta da API RouterOS",
-            ...(existing.status === "offline" && existing.offline_since ? {} : { offline_since: existing.offline_since ?? now }),
-          }
-        : {
-            nome: c.nome ?? undefined,
-            identidade: c.identidade ?? null,
-            modelo: c.modelo ?? null,
-            versao_routeros: c.versao_routeros ?? null,
-            status: c.status ?? "online",
-            cpu_load: c.cpu_load ?? null,
-            memory_used_pct: c.memory_used_pct ?? null,
-            uptime_seconds: c.uptime_seconds ?? null,
-            usuarios_online: c.usuarios_online ?? body.sessions.filter((s) => s.online).length,
-            ultima_coleta: now,
-            last_collect_attempt_at: now,
-            last_collect_error: null,
-            offline_since: null,
-          };
-      const { error: updErr } = await supabase.from("concentradores").update(patch).eq("id", concentradorId);
-      if (updErr) throw updErr;
-    } else {
-      const { data: ins, error: insErr } = await supabase
-        .from("concentradores")
-        .insert({
-          host: c.host,
-          nome: c.nome ?? c.identidade ?? c.host,
-          identidade: c.identidade ?? null,
-          modelo: c.modelo ?? null,
-          versao_routeros: c.versao_routeros ?? null,
-          status: c.status ?? "online",
-          cpu_load: c.cpu_load ?? null,
-          memory_used_pct: c.memory_used_pct ?? null,
-          uptime_seconds: c.uptime_seconds ?? null,
-          usuarios_online: c.usuarios_online ?? body.sessions.filter((s) => s.online).length,
-          ultima_coleta: now,
-        })
-        .select("id")
-        .single();
-      if (insErr) throw insErr;
-      concentradorId = ins.id;
+    // All API agents (including legacy transition) are snapshots only; never infer events.
+    let query = supabase.from("concentradores").select("id,organization_id");
+    query = body.concentrador_id ? query.eq("id",body.concentrador_id) : query.eq("host",c.host);
+    const {data: target,error: targetErr} = await query.maybeSingle();
+    if (targetErr) throw targetErr;
+    if (!target) return json({error:"Equipamento não cadastrado"},404);
+    if (agentId) {
+      const {data: assigned} = await supabase.from("mikrotik_api_credentials").select("id").eq("agent_id",agentId).eq("concentrador_id",target.id).eq("organization_id",target.organization_id ?? "00000000-0000-0000-0000-000000000000").maybeSingle();
+      // Null-organization legacy assignments are checked separately without widening scope.
+      const {data: legacy} = target.organization_id === null ? await supabase.from("mikrotik_api_credentials").select("id").eq("agent_id",agentId).eq("concentrador_id",target.id).is("organization_id",null).maybeSingle() : {data:null};
+      if (!assigned && !legacy) return json({error:"Equipamento não atribuído ao agente"},403);
     }
-
-    // 2) Reconciliar sessões PPPoE
-    // Buscar sessões ativas atuais no banco para este concentrador
-    const { data: dbSessions, error: dbSessErr } = await supabase
-      .from("pppoe_sessions")
-      .select("id, username, online")
-      .eq("concentrador_id", concentradorId)
-      .eq("online", true);
-    if (dbSessErr) throw dbSessErr;
-
-    const incomingOnline = new Map<string, SessionPayload>();
-    for (const s of body.sessions) {
-      if (s.online) incomingOnline.set(s.username, s);
+    const concentradorId = target.id;
+    const failure = c.status === "offline" || !!body.error;
+    const {error: apiErr} = await supabase.from("concentradores").update({
+      api_last_attempt_at:now,api_last_error: failure ? body.error ?? "Sem resposta API" : null,
+      ...(!failure ? {api_last_success_at:now,usuarios_online:body.sessions.filter((s)=>s.online).length,identidade:c.identidade,modelo:c.modelo,versao_routeros:c.versao_routeros} : {}),
+    }).eq("id",concentradorId);
+    if (apiErr) throw apiErr;
+    if (failure) return json({ok:true,collection_failure:true,events:0,synced:0});
+    const {data: current,error: currentErr} = await supabase.from("pppoe_sessions").select("id,username").eq("concentrador_id",concentradorId).eq("online",true);
+    if (currentErr) throw currentErr;
+    const incoming = new Map(body.sessions.filter((s)=>s.online).map((s)=>[s.username,s]));
+    const known = new Map((current ?? []).map((s)=>[s.username,s.id]));
+    const writeErrors: string[]=[];
+    // Missing clients were absent in this photo; their disconnect time/count is UNKNOWN.
+    const absent=(current ?? []).filter((s)=>!incoming.has(s.username)).map((s)=>s.id);
+    if(absent.length) {
+      const {error}=await supabase.from("pppoe_sessions").update({online:false,desconectado_em:null,ultima_atualizacao:now}).in("id",absent);
+      if(error) writeErrors.push(error.message);
     }
-
-    const dbOnlineMap = new Map<string, string>(); // username -> id
-    for (const s of dbSessions ?? []) dbOnlineMap.set(s.username, s.id);
-
-    // Conexões novas
-    const newConnections: SessionPayload[] = [];
-    for (const [user, s] of incomingOnline) {
-      if (!dbOnlineMap.has(user)) newConnections.push(s);
+    for(const [username,session] of incoming) {
+      const row={concentrador_id:concentradorId,username,ip_address:session.ip_address ?? null,caller_id:session.caller_id ?? null,interface:session.interface ?? null,uptime_seconds:session.uptime_seconds ?? null,bytes_in:session.bytes_in ?? null,bytes_out:session.bytes_out ?? null,online:true,ultima_atualizacao:now};
+      const id=known.get(username);
+      const {error}=id ? await supabase.from("pppoe_sessions").update(row).eq("id",id) : await supabase.from("pppoe_sessions").insert(row);
+      if(error) writeErrors.push(error.message);
     }
-
-    // Desconexões
-    let disconnected: { id: string; username: string }[] = [];
-    for (const [user, id] of dbOnlineMap) {
-      if (!incomingOnline.has(user)) disconnected.push({ id, username: user });
-    }
-
-    // Falha de coleta (VPS sem acesso ao concentrador): não derrubar ninguém
-    const collectionFailure =
-      c.status === "offline" || (incomingOnline.size === 0 && dbOnlineMap.size > 0);
-    if (collectionFailure) disconnected = [];
-
-    // Queda em massa: muitos clientes somem no mesmo ciclo
-    const massDrop =
-      disconnected.length >= 10 && disconnected.length >= dbOnlineMap.size * 0.3;
-
-    // Atualizar sessões existentes (uptime, bytes)
-    const updates: Promise<unknown>[] = [];
-    for (const [user, s] of incomingOnline) {
-      const id = dbOnlineMap.get(user);
-      if (id) {
-        const upd: Record<string, unknown> = {
-          ip_address: s.ip_address ?? null,
-          caller_id: s.caller_id ?? null,
-          interface: s.interface ?? null,
-          uptime_seconds: s.uptime_seconds ?? null,
-          ultima_atualizacao: now,
-        };
-        if (s.bytes_in != null) upd.bytes_in = s.bytes_in;
-        if (s.bytes_out != null) upd.bytes_out = s.bytes_out;
-        updates.push(supabase.from("pppoe_sessions").update(upd).eq("id", id));
-      }
-    }
-    const alertErrors: string[] = [];
-    const sessionUpdateErrors = (await Promise.all(updates))
-      .map((r) => (r as { error?: { message: string } | null }).error?.message)
-      .filter((m): m is string => !!m)
-      .slice(0, 5)
-      .map((m) => `sessão: ${m}`);
-
-    // Inserir novas conexões
-    if (newConnections.length > 0) {
-      const rows = newConnections.map((s) => ({
-        concentrador_id: concentradorId,
-        username: s.username,
-        ip_address: s.ip_address ?? null,
-        caller_id: s.caller_id ?? null,
-        interface: s.interface ?? null,
-        uptime_seconds: s.uptime_seconds ?? null,
-        bytes_in: s.bytes_in ?? 0,
-        bytes_out: s.bytes_out ?? 0,
-        online: true,
-        conectado_em: now,
-        ultima_atualizacao: now,
-      }));
-      const { error } = await supabase.from("pppoe_sessions").insert(rows);
-      if (error) throw error;
-    }
-
-    // Marcar desconexões
-    if (disconnected.length > 0) {
-      const ids = disconnected.map((d) => d.id);
-      const { error } = await supabase
-        .from("pppoe_sessions")
-        .update({ online: false, desconectado_em: now })
-        .in("id", ids);
-      if (error) throw error;
-    }
-
-    // 3) Eventos
-    const events: Array<Record<string, unknown>> = [];
-    // Retorno após queda em massa não conta como reconexão individual
-    const massReturn = newConnections.length >= 10 && newConnections.length >= incomingOnline.size * 0.3;
-    for (const c2 of newConnections) {
-      events.push({
-        tipo: "connect",
-        concentrador_id: concentradorId,
-        username: c2.username,
-        descricao: `Conexão PPPoE: ${c2.username}`,
-        metadata: { ip: c2.ip_address, interface: c2.interface, scope: massReturn ? "mass" : "individual" },
-      });
-    }
-    if (massDrop) {
-      events.push({
-        tipo: "device_down",
-        concentrador_id: concentradorId,
-        descricao: `Queda em massa: ${disconnected.length} clientes caíram juntos em ${c.nome ?? c.host}`,
-        metadata: { scope: "mass", count: disconnected.length, usernames: disconnected.map((d) => d.username).slice(0, 500) },
-      });
-      const { error: aErr } = await supabase.from("alertas").insert({
-        titulo: `Queda em massa: ${disconnected.length} clientes`,
-        descricao: `${disconnected.length} de ${dbOnlineMap.size} clientes caíram ao mesmo tempo em ${c.nome ?? c.host}`,
-        severidade: "critical",
-        status: "active",
-        concentrador_id: concentradorId,
-      });
-      if (aErr) alertErrors.push(`alerta massa: ${aErr.message}`);
-    } else {
-      for (const d of disconnected) {
-        events.push({
-          tipo: "disconnect",
-          concentrador_id: concentradorId,
-          username: d.username,
-          descricao: `Desconexão PPPoE: ${d.username}`,
-          metadata: { scope: "individual" },
-        });
-      }
-    }
-
-    // Evento de mudança de status do concentrador
-    const newStatus = c.status ?? "online";
-    if (previousStatus && previousStatus !== newStatus) {
-      if (newStatus === "offline") {
-        events.push({
-          tipo: "device_down",
-          concentrador_id: concentradorId,
-          descricao: `Concentrador ${c.nome ?? c.host} ficou offline`,
-        });
-        // Cria alerta crítico
-        const { error: oErr } = await supabase.from("alertas").insert({
-          titulo: `Concentrador offline: ${c.nome ?? c.host}`,
-          descricao: `Sem resposta da API RouterOS em ${c.host}${body.error ? ` (${body.error})` : ""}`,
-          severidade: "critical",
-          status: "active",
-          concentrador_id: concentradorId,
-        });
-        if (oErr) alertErrors.push(`alerta offline: ${oErr.message}`);
-      } else if (previousStatus === "offline" && newStatus === "online") {
-        events.push({
-          tipo: "device_up",
-          concentrador_id: concentradorId,
-          descricao: `Concentrador ${c.nome ?? c.host} voltou online`,
-          // Preserva o início do episódio (offline_since é zerado nesta mesma coleta)
-          metadata: { offline_since: existing?.offline_since ?? null, recovered_at: now, usuarios_online: incomingOnline.size },
-        });
-      }
-    }
-
-    if (events.length > 0) {
-      const { error } = await supabase.from("eventos").insert(events);
-      if (error) throw error;
-    }
-
-    // 4) Snapshot de conexões (balde de 5 min, 1 por concentrador; ignora falhas de coleta)
-    const writeErrors: string[] = [];
-    if (!collectionFailure) {
-      const b = new Date(Math.floor(Date.now() / 300_000) * 300_000).toISOString();
-      const { error: snapErr } = await supabase.from("connection_snapshots").upsert(
-        { concentrador_id: concentradorId, bucket_at: b, online_count: incomingOnline.size },
-        { onConflict: "concentrador_id,bucket_at" },
-      );
-      if (snapErr) writeErrors.push(`snapshot: ${snapErr.message}`);
-      if (Math.random() < 0.01) {
-        const { error: purgeErr } = await supabase.from("connection_snapshots").delete()
-          .lt("bucket_at", new Date(Date.now() - 30 * 86400_000).toISOString());
-        if (purgeErr) writeErrors.push(`purge: ${purgeErr.message}`);
-      }
-    }
-    writeErrors.push(...sessionUpdateErrors, ...alertErrors);
-    if (writeErrors.length) console.error("agent-ingest write errors:", c.host, writeErrors);
-
-    return json({
-      ok: writeErrors.length === 0,
-      concentrador_id: concentradorId,
-      collection_failure: collectionFailure,
-      synced: incomingOnline.size,
-      new_connections: newConnections.length,
-      disconnections: disconnected.length,
-      events: events.length,
-      write_errors: writeErrors,
-    });
+    const {error:snapshotErr}=await supabase.from("connection_snapshots").upsert({concentrador_id:concentradorId,organization_id:target.organization_id,bucket_at:now,online_count:incoming.size},{onConflict:"concentrador_id,bucket_at"});
+    if(snapshotErr) writeErrors.push(snapshotErr.message);
+    if(writeErrors.length) console.error("API snapshot write errors",writeErrors);
+    return json({ok:!writeErrors.length,events:0,synced:incoming.size,write_errors:writeErrors});
   } catch (err) {
     console.error("agent-ingest error:", err);
     const msg = err instanceof Error ? err.message : String(err);
