@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -81,7 +82,7 @@ export default function PPPoE() {
           <TableBody>
             {filtered.slice(0, 200).map((s) => (
               <TableRow key={s.id}>
-                <TableCell className="font-mono text-xs font-medium">{s.username}</TableCell>
+                <TableCell className="font-mono text-xs font-medium"><Link to={`/pppoe/${encodeURIComponent(s.username)}`} className="text-primary hover:underline">{s.username}</Link></TableCell>
                 <TableCell className="font-mono text-xs">{s.ip_address ?? "—"}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{s.interface ?? "—"}</TableCell>
                 <TableCell className="text-right font-mono text-xs">{formatUptime(s.uptime_seconds)}</TableCell>

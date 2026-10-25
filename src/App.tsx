@@ -14,6 +14,7 @@ import ConcentradorDetalhe from "./pages/ConcentradorDetalhe";
 import RBS from "./pages/RBS";
 import RbsDetalhe from "./pages/RbsDetalhe";
 import PPPoE from "./pages/PPPoE";
+import ClienteDetalhe from "./pages/ClienteDetalhe";
 import Alertas from "./pages/Alertas";
 import Eventos from "./pages/Eventos";
 import Metricas from "./pages/Metricas";
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/rbs" element={<RBS />} />
               <Route path="/rbs/:id" element={<RbsDetalhe />} />
               <Route path="/pppoe" element={<PPPoE />} />
+              <Route path="/pppoe/:username" element={<ClienteDetalhe />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/eventos" element={<Eventos />} />
               <Route path="/metricas" element={<Metricas />} />
