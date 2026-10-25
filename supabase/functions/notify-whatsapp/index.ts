@@ -3,6 +3,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { buildVars, render, checkCondition, isDue, type Report } from "./reports.ts";
+import {
+  allAccepted, applyResults, episodeKey, exhausted, normalizePhones, offlineBeyondTolerance, pendingPhones,
+  type DeliveryRow, type SendResult,
+} from "./logic.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const json = (b: unknown, s = 200) =>
@@ -14,36 +18,77 @@ type Settings = {
 };
 type Rule = { rule_key: string; label: string; enabled: boolean; send_whatsapp: boolean; include_in_daily: boolean; threshold: number; cooldown_minutes: number; window_minutes?: number; tolerance_minutes?: number };
 
-async function sendText(s: Settings, text: string) {
+function baseUrl(s: Settings) {
   if (!s.api_url || !s.api_token || !s.instance) throw new Error("Servidor WhatsApp não configurado");
-  const base = (/^https?:\/\//.test(s.api_url) ? s.api_url : `https://${s.api_url}`).replace(/\/+$/, "");
-  const errs: string[] = [];
-  for (const raw of s.phones) {
-    const number = raw.replace(/\D/g, "");
-    if (!number) continue;
-    const r = await fetch(`${base}/message/sendText/${encodeURIComponent(s.instance)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: s.api_token, Authorization: `Bearer ${s.api_token}` },
-      body: JSON.stringify({ number, text }),
-    });
-    if (!r.ok) errs.push(`${number}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
-  }
-  if (errs.length) throw new Error(errs.join(" | "));
+  return (/^https?:\/\//.test(s.api_url) ? s.api_url : `https://${s.api_url}`).replace(/\/+$/, "");
 }
 
-async function deliver(s: Settings, ruleKey: string, dedupe: string, text: string, cooldown: number) {
+// Envia para UM destinatário. ok=true significa "aceito pela API" (não confirma entrega no aparelho).
+async function sendOne(s: Settings, number: string, text: string): Promise<SendResult> {
+  try {
+    const r = await fetch(`${baseUrl(s)}/message/sendText/${encodeURIComponent(s.instance!)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: s.api_token!, Authorization: `Bearer ${s.api_token}` },
+      body: JSON.stringify({ number, text }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await r.text();
+    if (!r.ok) return { phone: number, ok: false, error: `HTTP ${r.status} ${body.slice(0, 200)}` };
+    let id: string | null = null;
+    try { id = JSON.parse(body)?.key?.id ?? null; } catch { /* noop */ }
+    return { phone: number, ok: true, messageId: id };
+  } catch (e) {
+    return { phone: number, ok: false, error: (e as Error).message };
+  }
+}
+
+// Usado só em ações manuais (teste/relatório manual): lança erro se algum destinatário falhar.
+async function sendText(s: Settings, text: string) {
+  baseUrl(s);
+  const results = await Promise.all(normalizePhones(s.phones).map((p) => sendOne(s, p, text)));
+  const errs = results.filter((r) => !r.ok).map((r) => `${r.phone}: ${r.error}`);
+  if (errs.length) throw new Error(errs.join(" | "));
+  return results;
+}
+
+type DeliverOutcome = { status: "skipped" | "complete" | "partial" | "failed" | "exhausted"; accepted: number; failed: number; key: string };
+
+// Entrega com registro por destinatário: reenvia só pendentes (máx. MAX_ATTEMPTS), nunca repete quem já foi aceito.
+async function deliver(s: Settings, ruleKey: string, dedupe: string, text: string, cooldown: number, phones = s.phones): Promise<DeliverOutcome> {
+  const key = episodeKey(dedupe, cooldown);
   if (cooldown > 0) {
     const since = new Date(Date.now() - cooldown * 60000).toISOString();
     const { data } = await sb.from("notification_log").select("id").eq("dedupe_key", dedupe).eq("success", true).gte("created_at", since).limit(1);
-    if (data?.length) return false;
+    if (data?.length) return { status: "skipped", accepted: 0, failed: 0, key };
   }
-  try {
-    await sendText(s, text);
-    await sb.from("notification_log").insert({ rule_key: ruleKey, dedupe_key: dedupe, message: text });
-  } catch (e) {
-    await sb.from("notification_log").insert({ rule_key: ruleKey, dedupe_key: dedupe, message: text, success: false, error: String((e as Error).message) });
-  }
-  return true;
+  const { data: rows0, error: rErr } = await sb.from("notification_deliveries").select("phone,status,attempts").eq("dedupe_key", key);
+  if (rErr) throw new Error(`deliveries: ${rErr.message}`);
+  const rows = (rows0 ?? []) as DeliveryRow[];
+  if (allAccepted(phones, rows)) return { status: "complete", accepted: 0, failed: 0, key };
+  const pend = pendingPhones(phones, rows);
+  if (!pend.length) return { status: "exhausted", accepted: 0, failed: 0, key };
+
+  const results: SendResult[] = [];
+  for (const p of pend) results.push(await sendOne(s, p, text));
+  const merged = applyResults(rows, results);
+  const upserts = results.map((r) => ({
+    dedupe_key: key, rule_key: ruleKey, phone: r.phone,
+    status: r.ok ? "accepted" : "failed",
+    attempts: merged.find((m) => m.phone === r.phone)!.attempts,
+    provider_message_id: r.messageId ?? null,
+    last_error: r.ok ? null : r.error ?? "erro",
+  }));
+  const { error: uErr } = await sb.from("notification_deliveries").upsert(upserts, { onConflict: "dedupe_key,phone" });
+  if (uErr) console.error("notify-whatsapp: falha ao registrar entregas", uErr.message);
+
+  const done = allAccepted(phones, merged);
+  const failed = results.filter((r) => !r.ok);
+  await sb.from("notification_log").insert({
+    rule_key: ruleKey, dedupe_key: dedupe, message: text, success: done,
+    error: failed.length ? failed.map((f) => `${f.phone}: ${f.error}`).join(" | ").slice(0, 1000) : null,
+  });
+  const status = done ? "complete" : failed.length === results.length ? (exhausted(phones, merged) ? "exhausted" : "failed") : "partial";
+  return { status, accepted: results.length - failed.length, failed: failed.length, key };
 }
 
 async function collectAlerts(rules: Map<string, Rule>) {
