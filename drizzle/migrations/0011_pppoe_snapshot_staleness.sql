@@ -1,0 +1,1 @@
+DO $$ DECLARE definition text; BEGIN SELECT pg_get_functiondef('public.pppoe_clients_page(text,text,text,text,integer,integer)'::regprocedure) INTO definition; definition:=replace(definition, 'interval ''5 minutes''', 'interval ''6 hours'''); EXECUTE definition; END $$;
