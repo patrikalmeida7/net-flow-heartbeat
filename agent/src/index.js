@@ -252,6 +252,37 @@ async function sendOfflineStatus(mk, errMsg) {
   }
 }
 
+// ---------- Interfaces via API RouterOS → metrics-ingest ----------
+async function pushRouterOsInterfaces(mk) {
+  if (!metrics_ingest_url) return;
+  const now = Date.now();
+  if (now - (lastIfPush.get(mk.host) || 0) < snmp_poll_interval_seconds * 1000) return;
+  lastIfPush.set(mk.host, now);
+  const conn = await getConn(mk);
+  const list = await conn.write("/interface/print", [
+    "=.proplist=.id,name,type,comment,running,disabled,rx-byte,tx-byte,rx-error,tx-error",
+  ]);
+  const interfaces = list
+    .filter((i) => i.type !== "pppoe-in" && !/^<.*>$/.test(i.name || ""))
+    .map((i) => ({
+      if_index: parseInt(String(i[".id"] || "*0").replace("*", ""), 16) || 0,
+      if_name: i.name,
+      if_descr: i.type || i.name,
+      if_alias: i.comment || null,
+      oper_status: i.running === "true" ? "up" : "down",
+      admin_status: i.disabled === "true" ? "down" : "up",
+      in_octets: Number(i["rx-byte"]) || 0,
+      out_octets: Number(i["tx-byte"]) || 0,
+      in_errors: Number(i["rx-error"]) || 0,
+      out_errors: Number(i["tx-error"]) || 0,
+    }));
+  await postJson(metrics_ingest_url, {
+    collected_at: new Date().toISOString(),
+    devices: [{ concentrador_host: mk.host, interfaces }],
+  });
+  log("INFO", `📈 ${mk.nome || mk.host} | ${interfaces.length} interfaces enviadas`);
+}
+
 // ---------- Loop RouterOS API (sessões PPPoE) ----------
 async function tickRouterOs() {
   const results = [];
