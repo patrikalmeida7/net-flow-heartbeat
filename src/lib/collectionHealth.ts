@@ -29,7 +29,7 @@ export type DeviceHealth = DeviceHealthInput & { state: HealthState };
 export function devicesHealth(devices: DeviceHealthInput[], now = Date.now()) {
   const list: DeviceHealth[] = devices.map((d) => ({
     ...d,
-    state: collectionHealth({ lastCollectAt: d.ultima_coleta, anyDeviceOffline: d.status === "offline", now }),
+    state: d.status === "unknown" ? "device_down" : collectionHealth({ lastCollectAt: d.ultima_coleta, anyDeviceOffline: d.status === "offline", now }),
   }));
   const worst = list.length
     ? list.reduce((a, b) => (severity[b.state] > severity[a.state] ? b : a)).state

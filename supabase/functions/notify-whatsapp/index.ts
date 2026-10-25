@@ -141,8 +141,8 @@ function simulateTexts() {
   const now = Date.now();
   const since = new Date(now - 42 * 60000).toISOString(), up = new Date(now - 60000).toISOString();
   const rec = recoveryCandidates(
-    [{ id: "sim", concentrador_id: "sim", created_at: up, metadata: { offline_since: since } }],
-    [{ id: "sim", nome: "CONCENTRADOR EXEMPLO", status: "online", ultima_coleta: new Date(now).toISOString(), usuarios_online: 250 }],
+    [{ id: "sim", concentrador_id: "sim", created_at: up, metadata: { offline_since: since, source: "snmp" } }],
+    [{ id: "sim", nome: "CONCENTRADOR EXEMPLO", status: "online", ultima_coleta: new Date(now).toISOString(), snmp_last_success_at: new Date(now).toISOString(), snmp_status: "online" }],
     new Date(now - 3600000).toISOString(), now,
   )[0];
   return [
