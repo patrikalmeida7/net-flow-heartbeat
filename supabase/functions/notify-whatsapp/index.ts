@@ -90,7 +90,7 @@ async function collectAlerts(rules: Map<string, Rule>) {
   return out;
 }
 
-async function buildDaily(rules: Map<string, Rule>) {
+async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário NOC") {
   const inc = (k: string) => rules.get(k)?.enabled && rules.get(k)?.include_in_daily;
   const since = new Date(Date.now() - 86400000).toISOString();
   const [{ count: online }, { data: drops }, { data: concs }, { data: alerts }] = await Promise.all([
@@ -103,7 +103,7 @@ async function buildDaily(rules: Map<string, Rule>) {
   for (const e of drops ?? []) if (e.username) by.set(e.username, (by.get(e.username) ?? 0) + 1);
   const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const lim = rules.get("client_unstable")?.threshold ?? 5;
-  const lines = [`📊 *Relatório diário NOC* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "", `👥 Clientes online: *${online ?? 0}*`, `📉 Quedas em 24h: *${drops?.length ?? 0}*`, `🔔 Alertas em 24h: *${alerts?.length ?? 0}*`];
+  const lines = [`📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "", `👥 Clientes online: *${online ?? 0}*`, `📉 Quedas em 24h: *${drops?.length ?? 0}*`, `🔔 Alertas em 24h: *${alerts?.length ?? 0}*`];
   if (inc("client_unstable")) lines.push(`⚠️ Clientes instáveis (${lim}+ quedas): *${[...by.values()].filter((n) => n >= lim).length}*`);
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
@@ -180,16 +180,27 @@ Deno.serve(async (req) => {
     }
 
     if (!s.enabled) return json({ ok: true, skipped: "desativado" });
+    const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    const today = `${nowSp.getFullYear()}-${String(nowSp.getMonth() + 1).padStart(2, "0")}-${String(nowSp.getDate()).padStart(2, "0")}`;
+    const h = nowSp.getHours(), mins = h * 60 + nowSp.getMinutes();
+    const qs = s.quiet_start_hour ?? 23, qe = s.quiet_end_hour ?? 6;
+    const quiet = !!s.quiet_enabled && (qs > qe ? h >= qs || h < qe : h >= qs && h < qe);
+
     const alerts = await collectAlerts(rules);
     let sent = 0;
-    for (const a of alerts) if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
+    for (const a of alerts) {
+      if (quiet && !a.critical) continue;
+      if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
+    }
 
-    const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-    const today = nowSp.toISOString().slice(0, 10);
-    if (s.daily_report_enabled && nowSp.getHours() >= s.daily_report_hour && s.last_daily_sent_on !== today) {
-      const text = await buildDaily(rules);
-      await deliver(s, "daily", `daily:${today}`, text, 0);
+    const dayOk = (s.report_days ?? [0, 1, 2, 3, 4, 5, 6]).includes(nowSp.getDay());
+    if (dayOk && s.daily_report_enabled && mins >= s.daily_report_hour * 60 + (s.daily_report_minute ?? 0) && s.last_daily_sent_on !== today) {
+      await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
       await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
+    }
+    if (dayOk && s.evening_report_enabled && h >= (s.evening_report_hour ?? 18) && s.last_evening_sent_on !== today) {
+      await deliver(s, "daily", `evening:${today}`, await buildDaily(rules, "Fechamento do dia"), 0);
+      await sb.from("notification_settings").update({ last_evening_sent_on: today }).eq("id", s.id);
     }
     return json({ ok: true, checked: alerts.length, sent });
   } catch (e) {
