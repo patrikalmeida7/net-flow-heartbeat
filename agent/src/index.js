@@ -72,7 +72,7 @@ if (concentradores.length === 0 && !MK_CONFIG_URL) {
 async function refreshDynamicDevices() {
   if (!MK_CONFIG_URL || !MK_TOKEN) return;
   try {
-    const res = await fetch(MK_CONFIG_URL, { headers: { Authorization: `Bearer ${MK_TOKEN}` } });
+    const res = await fetch(MK_CONFIG_URL, { headers: { Authorization: `Bearer ${MK_TOKEN}` }, signal: AbortSignal.timeout(request_timeout_ms) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const { devices = [], snmp_targets = [] } = await res.json();
     snmpTargets = snmp_targets;
@@ -84,6 +84,8 @@ async function refreshDynamicDevices() {
     const dynHosts = new Set(dyn.map((d) => d.host));
     concentradores = [...staticConcentradores.filter((c) => !dynHosts.has(c.host)), ...dyn];
   } catch (e) {
+    snmpTargets = [];
+    concentradores = [];
     console.log(`[${new Date().toISOString()}] [WARN] Falha ao buscar MikroTiks do painel: ${e.message}`);
   }
 }
@@ -106,8 +108,7 @@ function log(level, ...args) {
 }
 
 // ---------- Coleta de um MikroTik ----------
-// Pool de conexões persistentes: 1 sessão autenticada por MikroTik, reaproveitada
-// entre ciclos (evita handshake TLS + login a cada coleta). Reconecta sozinho se cair.
+// Connection lives only within one scheduled snapshot and is always closed.
 const pool = new Map();
 function poolKey(mk) { return `${mk.host}:${mk.port}:${mk.user}:${mk.password}:${mk.tls ? 1 : 0}`; }
 function dropConn(mk) {
@@ -130,11 +131,11 @@ async function getConn(mk) {
     timeout: Math.ceil(request_timeout_ms / 1000),
     keepalive: false,
   });
-  conn.on("error", () => pool.delete(k));
+  conn.on("error", () => dropConn(mk));
   conn.on("close", () => pool.delete(k));
   pool.set(k, conn);
   await conn.connect();
-  log("INFO", `🔗 Sessão persistente aberta com ${mk.nome || mk.host}`);
+  log("INFO", `🔗 Sessão de sincronização aberta com ${mk.nome || mk.host}`);
   return conn;
 }
 
@@ -252,7 +253,7 @@ async function sendOfflineStatus(mk, errMsg) {
       error: String(errMsg || "").slice(0, 300),
       collected_at: new Date().toISOString(),
     });
-    log("WARN", `${mk.host} marcado como OFFLINE (${errMsg})`);
+    log("WARN", `${mk.host} falha API registrada (não altera saúde SNMP) (${errMsg})`);
   } catch (e) {
     log("ERROR", `Falha ao reportar offline de ${mk.host}:`, e.message);
   }
@@ -261,7 +262,8 @@ async function sendOfflineStatus(mk, errMsg) {
 // ---------- Interfaces via API RouterOS → metrics-ingest ----------
 async function pushRouterOsInterfaces(mk) {
   if (!metrics_ingest_url) return;
-  const conn = await getConn(mk);
+  const conn = pool.get(poolKey(mk));
+  if (!conn?.connected) throw new Error("Conexão API encerrada; sem reconexão fora da sincronização");
   const list = await conn.write("/interface/print", [
     "=.proplist=.id,name,type,comment,running,disabled,rx-byte,tx-byte,rx-error,tx-error",
   ]);
@@ -310,7 +312,7 @@ async function tickRouterOs() {
         try {
           const payload = await withTimeout(collect(mk), request_timeout_ms * 2, `coleta ${label}`);
           const res = await send(payload);
-          if (res.write_errors?.length) log("ERROR", `agent-ingest gravou com erros (${label}):`, res.write_errors.join(" | "));
+          if (res.ok !== true) throw new Error(`API gravação: ${(res.write_errors ?? []).join(" | ")}`);
           await withTimeout(pushRouterOsInterfaces(mk), request_timeout_ms * 2, `interfaces ${label}`)
             .catch((e) => { dropConn(mk); log("WARN", `Interfaces ✗ ${label}: ${e.message}`); });
           log(

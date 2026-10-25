@@ -63,7 +63,7 @@ export function episodeKey(dedupe: string, cooldownMinutes: number, now = Date.n
 }
 
 // ---------- Recuperação OFFLINE→ONLINE e resumo de saúde ----------
-export const FRESH_MS = 5 * 60000;
+export const FRESH_MS = 2 * 60000;
 const TZ = "America/Bahia";
 export const fmtBahia = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", { timeZone: TZ, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -74,7 +74,7 @@ export function fmtDur(ms: number): string {
 }
 
 export type UpEvent = { id: string; concentrador_id: string | null; created_at: string; metadata?: Record<string, unknown> | null };
-export type ConcState = { id: string; nome: string; status: string; ultima_coleta: string | null; usuarios_online?: number | null };
+export type ConcState = { id: string; nome: string; status: string; ultima_coleta: string | null; usuarios_online?: number | null; snmp_last_success_at?: string | null; snmp_status?: string };
 export type Recovery = { dedupe: string; concentrador_id: string; text: string };
 
 /**
@@ -88,15 +88,15 @@ export function recoveryCandidates(events: UpEvent[], concs: ConcState[], baseli
     const t = new Date(e.created_at).getTime();
     if (!e.concentrador_id || t <= base) continue;
     const c = concs.find((x) => x.id === e.concentrador_id);
-    if (!c || c.status !== "online" || !c.ultima_coleta) continue;
-    const last = new Date(c.ultima_coleta).getTime();
+    if (!c || c.snmp_status !== "online" || !c.snmp_last_success_at || e.metadata?.source !== "snmp") continue;
+    const last = new Date(c.snmp_last_success_at).getTime();
     if (now - last > FRESH_MS || last < t) continue; // heartbeat/dado velho não comprova recuperação
     const since = typeof e.metadata?.offline_since === "string" ? (e.metadata.offline_since as string) : null;
     const lines = [`🟢 *Concentrador recuperado*`, `${c.nome} voltou a responder.`];
     lines.push(`Início da indisponibilidade: ${since ? fmtBahia(since) : "desconhecido"}`);
     lines.push(`Fim: ${fmtBahia(e.created_at)}`);
     if (since) lines.push(`Duração: ${fmtDur(t - new Date(since).getTime())}`);
-    lines.push(`Clientes conectados (coleta ${fmtBahia(c.ultima_coleta)}): ${c.usuarios_online ?? "não verificado"}`);
+    lines.push("Clientes atuais: não verificados (PPPoE é fotografia API de 6h).");
     out.push({ dedupe: `up:${e.id}`, concentrador_id: c.id, text: lines.join("\n") });
   }
   return out;
@@ -105,10 +105,10 @@ export function recoveryCandidates(events: UpEvent[], concs: ConcState[], baseli
 export type HealthInput = { concs: ConcState[]; confirmedClients: number | null; criticalAlerts: number; now?: number };
 export function healthSummary(i: HealthInput): { state: "Operacional" | "Atenção" | "Sem dados recentes"; text: string } {
   const now = i.now ?? Date.now();
-  const fresh = (c: ConcState) => !!c.ultima_coleta && now - new Date(c.ultima_coleta).getTime() <= FRESH_MS;
-  const lastIso = i.concs.map((c) => c.ultima_coleta).filter(Boolean).sort().pop() ?? null;
-  const freshOnline = i.concs.filter((c) => c.status === "online" && fresh(c));
-  const offline = i.concs.filter((c) => c.status === "offline");
+  const fresh = (c: ConcState) => !!c.snmp_last_success_at && now - new Date(c.snmp_last_success_at).getTime() <= FRESH_MS;
+  const lastIso = i.concs.map((c) => c.snmp_last_success_at).filter(Boolean).sort().pop() ?? null;
+  const freshOnline = i.concs.filter((c) => c.snmp_status === "online" && fresh(c));
+  const offline = i.concs.filter((c) => c.snmp_status === "unreachable");
   const unknown = i.concs.length - freshOnline.length - offline.length;
   const state = freshOnline.length === 0 ? "Sem dados recentes"
     : offline.length || unknown || i.criticalAlerts ? "Atenção" : "Operacional";
@@ -116,7 +116,7 @@ export function healthSummary(i: HealthInput): { state: "Operacional" | "Atenç�
   const lines = [
     `${icon} *Resumo de saúde NOC: ${state}*`,
     `Última coleta válida: ${lastIso ? fmtBahia(lastIso) : "desconhecida"}`,
-    `Concentradores online (dado recente): ${freshOnline.length} · offline: ${offline.length} · sem dado recente: ${unknown}`,
+    `Concentradores online (dado recente): ${freshOnline.length} · SNMP indisponível: ${offline.length} · sem dado recente: ${unknown}`,
     `Clientes confirmados: ${state === "Sem dados recentes" || i.confirmedClients == null ? "desconhecido" : i.confirmedClients}`,
     `Alertas críticos ativos: ${i.criticalAlerts}`,
   ];

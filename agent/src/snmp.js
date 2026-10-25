@@ -76,6 +76,7 @@ function getAsync(session, oids) {
 function subtreeAsync(session, oid, maxRows = 500) {
   return new Promise((resolve, reject) => {
     const out = [];
+    const optionalTimeout = setTimeout(() => resolve(out), 6000);
     session.subtree(
       oid,
       20, // maxRepetitions
@@ -86,7 +87,7 @@ function subtreeAsync(session, oid, maxRows = 500) {
           if (out.length >= maxRows) return false;
         }
       },
-      (err) => (err ? reject(err) : resolve(out)),
+      (err) => { clearTimeout(optionalTimeout); err ? reject(err) : resolve(out); },
     );
   });
 }
@@ -100,13 +101,13 @@ export async function collectSnmp(target, cfg) {
   const session = buildSession(target, cfg);
   let timer;
   const expired = new Promise((_, reject) => {
-    timer = setTimeout(() => { try { session.close(); } catch {} reject(new Error("SNMP: timeout total 25000ms")); }, 25000);
+    timer = setTimeout(() => { try { session.close(); } catch {} reject(new Error("SNMP: timeout total 29000ms")); }, 29000);
   });
   try {
     return await Promise.race([expired, (async () => {
-    // Sistema (em paralelo)
-    const [sysVarbinds, cpuRows, memTypes, memSizes, memUsed] = await Promise.all([
-      getAsync(session, [OID.sysUpTime]),
+    const sysVarbinds = await getAsync(session, [OID.sysUpTime]);
+    // Optional unsupported OIDs do not invalidate a valid sysUpTime response.
+    const [cpuRows, memTypes, memSizes, memUsed] = await Promise.all([
       subtreeAsync(session, OID.hrProcessorLoad).catch(() => []),
       subtreeAsync(session, OID.hrStorageType).catch(() => []),
       subtreeAsync(session, OID.hrStorageSize).catch(() => []),
