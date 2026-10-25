@@ -1,6 +1,7 @@
 - Multi-tenant: tenant data carries `organization_id` (table `organizations` + `organization_members`, check via `is_org_member`); keeps the SaaS path open without rewriting tables later.
 - MikroTik API devices live in `mikrotik_api_credentials` (password encrypted, readable only by service role); collectors pull them from the `mikrotik-agent-config` function, so adding a device never requires editing config.json on the VPS.
 - Primary monitoring uses source-specific SNMP state/timestamps through metrics-ingest; agent-ingest stores API photos only and never emits client/status transitions, so sparse snapshots and legacy collectors cannot manufacture outages. API interfaces stay in a separate JSON photo; SNMP counters alone own interface deltas.
+- SNMP persistence uses a service-role-only per-device transaction and timestamp/payload receipt; counter-width changes reset delta baselines, and persistence errors never advance SNMP observation timestamps.
 - API slots are claimed durably per agent in the backend before collection, and connections close after each photo; a restart cannot duplicate an executed slot.
 - SNMP credential secrets are not client-readable; admin saves through save_snmp_credentials and assigns an agent matching the target organization, so SNMP-only devices retain tenant isolation.
 - A PPPoE client is identified by `concentrador_id + username` (routes `/pppoe/c/:concentradorId/:username`); lists/totals come from server RPCs (`pppoe_clients_page`, `eventos_page`, `*_summary`) to avoid the 1000-row cap.
