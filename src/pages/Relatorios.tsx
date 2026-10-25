@@ -132,7 +132,7 @@ export default function Relatorios() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Relatórios e Alertas</h1>
-          <p className="text-sm text-muted-foreground">Central de notificações via WhatsApp (MultixZap)</p>
+          <p className="text-sm text-muted-foreground">Central de notificações via WhatsApp (Evolution API)</p>
         </div>
         <Badge variant={s.enabled ? "default" : "secondary"}>{s.enabled ? "Envio automático ligado" : "Envio automático desligado"}</Badge>
       </div>
@@ -234,14 +234,11 @@ export default function Relatorios() {
           <TabsContent value="conexao">
             <Card className="bg-gradient-card p-5 shadow-card">
               <div className="mb-4 flex items-center gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">MultixZap</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">WhatsApp da sua empresa</h2>
                 <label className="ml-auto flex items-center gap-2 text-sm"><Switch checked={s.enabled} onCheckedChange={(v) => setS({ ...s, enabled: v })} />Envio automático</label>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div><Label>Endereço da API</Label><Input placeholder="https://api.multixzap.com.br" value={s.api_url} onChange={(e) => setS({ ...s, api_url: e.target.value })} /></div>
-                <div><Label>Instância</Label><Input placeholder="noc" value={s.instance} onChange={(e) => setS({ ...s, instance: e.target.value })} /></div>
-                <div><Label>Token / API Key</Label><Input type="password" value={s.api_token} onChange={(e) => setS({ ...s, api_token: e.target.value })} /></div>
-              </div>
+              <p className="mb-4 text-sm text-muted-foreground">Basta conectar seu WhatsApp pelo QR Code. O servidor de envio já vem pronto.</p>
+              <div className="mb-4"><WhatsAppConnect ready /></div>
               <div className="mt-4">
                 <Label>Quem recebe os avisos</Label>
                 <div className="mt-1 flex gap-2">
@@ -257,7 +254,6 @@ export default function Relatorios() {
                   ))}
                 </div>
               </div>
-              <div className="mt-4"><WhatsAppConnect ready={!!(settingsQ.data?.api_url && settingsQ.data?.api_token && settingsQ.data?.instance)} /></div>
               <div className="mt-4 flex flex-wrap justify-between gap-2">
                 <Button variant="secondary" onClick={() => call("test")} disabled={busy || !s.id}><Send className="mr-1 h-4 w-4" />Enviar teste</Button>
                 <Button onClick={save} disabled={busy}>Salvar alterações</Button>
