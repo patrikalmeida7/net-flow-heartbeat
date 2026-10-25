@@ -15,6 +15,13 @@
       "when": 1792933544576,
       "tag": "0001_fix_generichash_signature",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792933734819,
+      "tag": "0002_mikrotik_password_pgcrypto",
+      "breakpoints": true
     }
   ]
 }
