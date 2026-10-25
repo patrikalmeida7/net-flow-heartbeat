@@ -4,3 +4,4 @@
 - A PPPoE client is identified by `concentrador_id + username` (routes `/pppoe/c/:concentradorId/:username`); lists/totals come from server RPCs (`pppoe_clients_page`, `eventos_page`, `*_summary`) to avoid the 1000-row cap.
 - Mass drops are one `device_down` event with `metadata.scope='mass'` + `count`/`usernames`; individual drops are `disconnect`. Reports/alerts must count both but never treat mass drops as client instability.
 - WhatsApp sends go through `deliver()` with per-recipient rows in `notification_deliveries` (retry only pending, max 3) and a `job_locks` lock; pure logic lives in `notify-whatsapp/logic.ts` and is unit-tested from `src/test`.
+- Access is granted only by `access_authorizations` (admin-managed, exact normalized e-mail, active/blocked); `has_role`/`is_authorized` read it live, so blocks hit open sessions and every RLS/RPC/function. `user_roles` is deprecated; never grant roles on signup.
