@@ -278,6 +278,12 @@ Deno.serve(async (req) => {
     }
 
     if (!s.enabled) return json({ ok: true, skipped: "desativado" });
+
+    // Trava contra execuções concorrentes (cron sobreposto / chamadas duplicadas)
+    const holder = crypto.randomUUID();
+    const { data: locked } = await sb.rpc("try_job_lock", { _name: "notify-whatsapp", _holder: holder, _seconds: 55 });
+    if (!locked) return json({ ok: true, skipped: "execução concorrente em andamento" });
+    try {
     const nowSp = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     const today = `${nowSp.getFullYear()}-${String(nowSp.getMonth() + 1).padStart(2, "0")}-${String(nowSp.getDate()).padStart(2, "0")}`;
     const h = nowSp.getHours(), mins = h * 60 + nowSp.getMinutes();
@@ -285,13 +291,14 @@ Deno.serve(async (req) => {
     const quiet = !!s.quiet_enabled && (qs > qe ? h >= qs || h < qe : h >= qs && h < qe);
 
     const alerts = await collectAlerts(rules);
-    let sent = 0;
+    const outcomes: Record<string, number> = {};
+    const count = (o: DeliverOutcome) => { outcomes[o.status] = (outcomes[o.status] ?? 0) + 1; };
     for (const a of alerts) {
       if (quiet && !a.critical) continue;
-      if (await deliver(s, a.key, a.dedupe, a.text, a.cooldown)) sent++;
+      count(await deliver(s, a.key, a.dedupe, a.text, a.cooldown));
     }
 
-    // Relatórios personalizados
+    // Relatórios personalizados: episódio estável até concluir (retry só dos pendentes)
     const { data: reps } = await sb.from("custom_reports").select("*").eq("enabled", true);
     for (const r of (reps ?? []) as Report[]) {
       try {
@@ -311,27 +318,35 @@ Deno.serve(async (req) => {
           if (quiet) continue;
         }
         const text = render(r.template, await buildVars(sb, { ...r, concentrador_id: ccid }, extra));
-        let ok = true, err: string | null = null;
-        try { await sendText({ ...s, phones: r.phones.length ? r.phones : s.phones }, text); } catch (e) { ok = false; err = (e as Error).message; }
-        await sb.from("notification_log").insert({ rule_key: `report:${r.nome}`, dedupe_key: `report:${r.id}`, message: text, success: ok, error: err });
-        await sb.from("custom_reports").update({ last_sent_at: new Date().toISOString(), last_success: ok, last_error: err }).eq("id", r.id);
-        if (ok) sent++;
+        const o = await deliver(s, `report:${r.nome}`, `report:${r.id}:${r.last_sent_at ?? "first"}`, text, 0, r.phones.length ? r.phones : s.phones);
+        count(o);
+        const done = o.status === "complete";
+        await sb.from("custom_reports").update({
+          ...(done ? { last_sent_at: new Date().toISOString() } : {}),
+          last_success: done,
+          last_error: done ? null : `Envio ${o.status}: ${o.failed} falha(s)`,
+        }).eq("id", r.id);
       } catch (e) {
         await sb.from("custom_reports").update({ last_error: (e as Error).message }).eq("id", r.id);
       }
     }
 
-
+    // Resumos diários: só marca como enviado quando todos os destinatários foram aceitos
     const dayOk = (s.report_days ?? [0, 1, 2, 3, 4, 5, 6]).includes(nowSp.getDay());
     if (dayOk && s.daily_report_enabled && mins >= s.daily_report_hour * 60 + (s.daily_report_minute ?? 0) && s.last_daily_sent_on !== today) {
-      await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
-      await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
+      const o = await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
+      count(o);
+      if (o.status === "complete") await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
     }
     if (dayOk && s.evening_report_enabled && h >= (s.evening_report_hour ?? 18) && s.last_evening_sent_on !== today) {
-      await deliver(s, "daily", `evening:${today}`, await buildDaily(rules, "Fechamento do dia"), 0);
-      await sb.from("notification_settings").update({ last_evening_sent_on: today }).eq("id", s.id);
+      const o = await deliver(s, "daily", `evening:${today}`, await buildDaily(rules, "Fechamento do dia"), 0);
+      count(o);
+      if (o.status === "complete") await sb.from("notification_settings").update({ last_evening_sent_on: today }).eq("id", s.id);
     }
-    return json({ ok: true, checked: alerts.length, sent });
+    return json({ ok: true, checked: alerts.length, outcomes, note: "accepted = aceito pela API; entrega no aparelho não é confirmada" });
+    } finally {
+      await sb.rpc("release_job_lock", { _name: "notify-whatsapp", _holder: holder });
+    }
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }
