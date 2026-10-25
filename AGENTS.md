@@ -1,2 +1,6 @@
 - Multi-tenant: tenant data carries `organization_id` (table `organizations` + `organization_members`, check via `is_org_member`); keeps the SaaS path open without rewriting tables later.
 - MikroTik API devices live in `mikrotik_api_credentials` (password encrypted, readable only by service role); collectors pull them from the `mikrotik-agent-config` function, so adding a device never requires editing config.json on the VPS.
+- `concentradores.ultima_coleta` = last VALID RouterOS API collection only (agent-ingest); failures set `offline_since`/`last_collect_error` instead, and SNMP (metrics-ingest) never touches status/ultima_coleta — so a stalled collector can't be masked by another source.
+- A PPPoE client is identified by `concentrador_id + username` (routes `/pppoe/c/:concentradorId/:username`); lists/totals come from server RPCs (`pppoe_clients_page`, `eventos_page`, `*_summary`) to avoid the 1000-row cap.
+- Mass drops are one `device_down` event with `metadata.scope='mass'` + `count`/`usernames`; individual drops are `disconnect`. Reports/alerts must count both but never treat mass drops as client instability.
+- WhatsApp sends go through `deliver()` with per-recipient rows in `notification_deliveries` (retry only pending, max 3) and a `job_locks` lock; pure logic lives in `notify-whatsapp/logic.ts` and is unit-tested from `src/test`.
