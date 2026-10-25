@@ -1,4 +1,5 @@
 # Roadmap — NOC-ISP
+- [ ] Aplicar política SNMP principal e fotografias API agendadas, preservando histórico
 - [x] Dashboard real, saúde da coleta por equipamento, último estado conhecido
 - [x] Métricas: Sem dados / erro / retry, frescor
 - [x] PPPoE / Histórico / Cliente: paginação no servidor, cliente = concentrador+login
