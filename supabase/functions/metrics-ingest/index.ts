@@ -4,6 +4,7 @@
 // - Faz upsert das interfaces (descoberta).
 // - Calcula bps a partir de delta de octets quando aplicável.
 // - Insere amostras em metric_samples (raw, retenção 7 dias).
+import { z } from "npm:zod@3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -97,13 +98,9 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (!body?.devices?.length) {
-    return new Response(JSON.stringify({ error: "devices required" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
+  const schema=z.object({source:z.enum(["snmp","routeros_snapshot"]).optional(),collected_at:z.string().datetime().optional(),devices:z.array(z.object({concentrador_id:z.string().uuid().optional(),rbs_id:z.string().uuid().optional(),concentrador_host:z.string().max(255).optional(),rbs_host:z.string().max(255).optional(),snmp_valid:z.boolean().optional(),snmp_error:z.string().max(1000).optional(),uptime_seconds:z.number().finite().nonnegative().optional().nullable(),cpu_load:z.number().finite().min(0).max(100).optional().nullable(),memory_used_pct:z.number().finite().min(0).max(100).optional().nullable(),interfaces:z.array(z.object({if_index:z.number().int().positive().optional(),routeros_id:z.string().max(50).optional(),in_octets:z.number().finite().nonnegative().nullable().optional(),out_octets:z.number().finite().nonnegative().nullable().optional()}).passthrough()).max(10000).optional()}).passthrough().refine(d=>!!(d.concentrador_id || d.concentrador_host) !== !!(d.rbs_id || d.rbs_host),"Exatamente um equipamento é obrigatório")).min(1).max(500)});
+  const parsed=schema.safeParse(body);
+  if(!parsed.success) return new Response(JSON.stringify({error:parsed.error.flatten()}),{status:400,headers:{...corsHeaders,"Content-Type":"application/json"}});
   const collectedAt = body.collected_at ?? new Date().toISOString();
   if (!Number.isFinite(Date.parse(collectedAt)) || Math.abs(Date.now()-Date.parse(collectedAt))>120000) return new Response(JSON.stringify({error:"Stale/invalid collected_at"}),{status:400,headers:{...corsHeaders,"Content-Type":"application/json"}});
   const collectedAtMs = new Date(collectedAt).getTime();
@@ -150,11 +147,13 @@ Deno.serve(async (req) => {
     }
     // Legacy source-less payloads are quarantined: cannot claim SNMP success or mix counters.
     if(body.source !== "snmp") {errors.push("Atualize noc-agent: payload sem identificação de fonte");continue;}
+    if(dev.interfaces?.some((i)=>!Number.isInteger(i.if_index) || i.if_index<=0)) {errors.push("ifIndex SNMP inválido");continue;}
     const valid=dev.snmp_valid === true && !dev.snmp_error && typeof dev.uptime_seconds === "number" && Number.isFinite(dev.uptime_seconds);
     const table=concentrador_id ? "concentradores":"rbs";
     const targetId=concentrador_id ?? rbs_id;
     const {data: previous,error: prevErr}=await supabase.from(table).select(concentrador_id ? "snmp_status,snmp_last_attempt_at,snmp_last_success_at,offline_since" : "snmp_status,snmp_last_attempt_at,snmp_last_success_at").eq("id",targetId).maybeSingle();
     // RBS has no legacy offline_since; use its own source timestamps below.
+    if((previous as any)?.snmp_last_attempt_at && collectedAt <= (previous as any).snmp_last_attempt_at) continue;
     if(prevErr && concentrador_id) {errors.push(prevErr.message);continue;}
     const errText=valid ? null : dev.snmp_error ?? "SNMP sem resposta de sistema válida";
     const patch:Record<string,unknown>={snmp_last_attempt_at:collectedAt,snmp_last_error:errText,snmp_status:valid ? "online":"unreachable",status:valid ? "online":"unknown"};

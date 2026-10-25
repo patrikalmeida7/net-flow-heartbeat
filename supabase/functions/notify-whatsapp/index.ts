@@ -108,44 +108,8 @@ async function collectAlerts(rules: Map<string, Rule>) {
     r = on("memory_high");
     if (r && freshSnmp && c.memory_used_pct != null && (c.memory_used_pct ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `mem:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *Memória alta*\n${c.nome}: ${c.memory_used_pct}% (limite ${r.threshold}%)` });
   }
-  let r = on("online_drop");
-  if (false && r && r.threshold > 0) {
-    // Só avalia com dados frescos: coletor parado não vira "clientes abaixo do limite"
-    const fresh = new Date(Date.now() - 5 * 60000).toISOString();
-    const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh);
-    const anyFresh = (concs ?? []).some((c) => c.ultima_coleta && c.ultima_coleta >= fresh);
-    if (anyFresh && (count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
-  }
-  r = null; // Real-time PPPoE events unavailable: do not alert on legacy/snapshot differences.
-  if (r) {
-    const win = Math.max(1, r.window_minutes ?? 5);
-    const since = new Date(Date.now() - win * 60000).toISOString();
-    const { data } = await sb.from("eventos").select("concentrador_id").eq("tipo", "disconnect").gte("created_at", since);
-    const { data: mass } = await sb.from("eventos").select("concentrador_id, metadata").eq("tipo", "device_down").eq("metadata->>scope", "mass").gte("created_at", since);
-    const by = new Map<string, number>();
-    for (const e of data ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + 1);
-    for (const e of mass ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + Number((e.metadata as any)?.count ?? 0));
-    for (const [cid, n] of by) if (n >= r.threshold) {
-      const nome = (concs ?? []).find((c) => c.id === cid)?.nome ?? "concentrador";
-      out.push({ key: r.rule_key, critical: true, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos ${win} min em ${nome}.` });
-    }
-  }
-  r = null; // Snapshot differences cannot prove instability.
-  if (r) {
-    // Só quedas individuais; agrupadas por concentrador+login para não misturar logins iguais
-    const since = new Date(Date.now() - 86400000).toISOString();
-    const { data } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", since).limit(50000);
-    const by = new Map<string, { u: string; cid: string; n: number }>();
-    for (const e of data ?? []) if (e.username) {
-      const k = `${e.concentrador_id ?? "?"}|${e.username}`;
-      const cur = by.get(k) ?? { u: e.username, cid: e.concentrador_id ?? "?", n: 0 };
-      cur.n++; by.set(k, cur);
-    }
-    for (const v of by.values()) if (v.n >= r.threshold) {
-      const nome = (concs ?? []).find((c) => c.id === v.cid)?.nome ?? "";
-      out.push({ key: r.rule_key, dedupe: `unstable:${v.cid}:${v.u}`, cooldown: r.cooldown_minutes, text: `⚠️ *Cliente instável*\n${v.u}${nome ? ` (${nome})` : ""}: ${v.n} quedas individuais nas últimas 24h.` });
-    }
-  }
+  // PPPoE real-time alert rules remain configured but cannot execute without confirmed events.
+  let r: Rule | null = null;
   r = on("system_alerts");
   if (r) {
     const since = new Date(Date.now() - 10 * 60000).toISOString();
@@ -195,7 +159,7 @@ async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário
     sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta"),
     sb.from("alertas").select("id", { count: "exact", head: true }).gte("created_at", new Date(Date.now() - 86400000).toISOString()),
   ]);
-  const sm = (summary ?? {}) as Record<string, number>;
+  const sm = (summary ?? {}) as Record<string, number | string | null>;
   const a = (an ?? {}) as { individual_drops?: number; mass_incidents?: number; mass_affected?: number; top?: { concentrador_id: string; username: string; n: number }[] };
   const lim = rules.get("client_unstable")?.threshold ?? 5;
   const top = (a.top ?? []).slice(0, 5);
@@ -209,12 +173,6 @@ async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário
     "Quedas e instabilidade em tempo real indisponíveis (PPPoE sincroniza a cada 6h).",
     `🔔 Alertas em 24h: *${alerts ?? 0}*`,
   ];
-  if (false && inc("client_unstable")) {
-    const { data: ev } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", new Date(Date.now() - 86400000).toISOString()).limit(50000);
-    const by = new Map<string, number>();
-    for (const e of ev ?? []) if (e.username) { const k = `${e.concentrador_id}|${e.username}`; by.set(k, (by.get(k) ?? 0) + 1); }
-    lines.push(`⚠️ Clientes com ${lim}+ quedas individuais: *${[...by.values()].filter((n) => n >= lim).length}*`);
-  }
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
     for (const c of concs ?? []) lines.push(`${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.usuarios_online} na fotografia API`);

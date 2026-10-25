@@ -23,12 +23,9 @@ type Cred = {
   enabled: boolean;
   version: "v2c" | "v3";
   port: number;
-  community: string | null;
   username: string | null;
   auth_proto: "none" | "MD5" | "SHA";
-  auth_password: string | null;
   priv_proto: "none" | "DES" | "AES";
-  priv_password: string | null;
   poll_interval_seconds: number;
   timeout_ms: number;
   retries: number;

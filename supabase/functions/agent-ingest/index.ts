@@ -2,6 +2,7 @@
 // Recebe dados do agente coletor local (MikroTik) e grava no banco usando service role.
 // Autenticação: header x-agent-token deve bater com o secret AGENT_INGEST_TOKEN.
 
+import { z } from "npm:zod@3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -76,7 +77,9 @@ Deno.serve(async (req) => {
     if (!authorized) return json({ error: "Unauthorized" }, 401);
     void agentId;
 
-    const body = (await req.json()) as IngestPayload;
+    const parsed=z.object({concentrador:z.object({host:z.string().min(1).max(255),status:z.enum(["online","warning","offline","unknown"]).optional()}).passthrough(),sessions:z.array(z.object({username:z.string().min(1).max(255),online:z.boolean(),bytes_in:z.number().finite().nonnegative().nullable().optional(),bytes_out:z.number().finite().nonnegative().nullable().optional()}).passthrough()).max(100000),concentrador_id:z.string().uuid().optional(),source:z.string().optional(),error:z.string().max(1000).optional(),collected_at:z.string().datetime().optional()}).safeParse(await req.json());
+    if(!parsed.success) return json({error:parsed.error.flatten()},400);
+    const body = parsed.data as IngestPayload;
     if (!body?.concentrador?.host) {
       return json({ error: "Invalid payload: concentrador.host required" }, 400);
     }
@@ -113,8 +116,13 @@ Deno.serve(async (req) => {
     }).eq("id",concentradorId);
     if (apiErr) throw apiErr;
     if (failure) return json({ok:true,collection_failure:true,events:0,synced:0});
-    const {data: current,error: currentErr} = await supabase.from("pppoe_sessions").select("id,username").eq("concentrador_id",concentradorId).eq("online",true);
-    if (currentErr) throw currentErr;
+    const current: {id:string;username:string}[]=[];
+    for(let offset=0;;offset+=1000) {
+      const {data,error}=await supabase.from("pppoe_sessions").select("id,username").eq("concentrador_id",concentradorId).eq("online",true).order("id").range(offset,offset+999);
+      if(error) throw error;
+      current.push(...(data ?? []));
+      if(!data || data.length<1000) break;
+    }
     const incoming = new Map(body.sessions.filter((s)=>s.online).map((s)=>[s.username,s]));
     const known = new Map((current ?? []).map((s)=>[s.username,s.id]));
     const writeErrors: string[]=[];
