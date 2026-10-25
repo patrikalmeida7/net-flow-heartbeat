@@ -79,8 +79,10 @@ export async function checkCondition(sb: any, r: Report): Promise<{ value: numbe
     case "mass_disconnect": {
       const since = new Date(Date.now() - Math.max(1, r.condition_window_minutes) * 60000).toISOString();
       const { data } = await f(sb.from("eventos").select("concentrador_id").eq("tipo", "disconnect").gte("created_at", since).limit(10000));
+      const { data: mass } = await f(sb.from("eventos").select("concentrador_id, metadata").eq("tipo", "device_down").eq("metadata->>scope", "mass").gte("created_at", since));
       const by = new Map<string, number>();
       for (const e of data ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + 1);
+      for (const e of mass ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + Number(e.metadata?.count ?? 0));
       const best = [...by.entries()].sort((a, b) => b[1] - a[1])[0];
       return best && best[1] >= thr ? { value: best[1], concentrador_id: best[0] } : null;
     }
