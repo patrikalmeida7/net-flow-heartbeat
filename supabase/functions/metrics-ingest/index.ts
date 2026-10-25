@@ -58,8 +58,17 @@ Deno.serve(async (req) => {
   }
 
   const expected = Deno.env.get("AGENT_INGEST_TOKEN");
-  const got = req.headers.get("x-agent-token");
-  if (!expected || got !== expected) {
+  const bearer = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1];
+  const got = (req.headers.get("x-agent-token") || bearer || "").trim();
+  let authorized = !!got && !!expected && got === expected;
+  if (!authorized && got) {
+    const sbAuth = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(got));
+    const hash = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const { data: agent } = await sbAuth.from("agents").select("id, enabled").eq("token_hash", hash).maybeSingle();
+    authorized = !!agent?.enabled;
+  }
+  if (!authorized) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

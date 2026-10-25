@@ -40,7 +40,7 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
 const {
   ingest_url,
-  metrics_ingest_url,
+  metrics_ingest_url: cfgMetricsUrl,
   ingest_token,
   poll_interval_seconds: cfgPoll = 10,
   snmp_poll_interval_seconds = 30,
