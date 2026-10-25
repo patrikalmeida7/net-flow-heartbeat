@@ -42,12 +42,13 @@ const {
   ingest_url,
   metrics_ingest_url,
   ingest_token,
-  poll_interval_seconds = Number(process.env.POLL_INTERVAL_SECONDS) || 10,
+  poll_interval_seconds: cfgPoll = 10,
   snmp_poll_interval_seconds = 30,
   request_timeout_ms = 10000,
   concentradores: staticConcentradores = [],
   rbs = [],
 } = config;
+const poll_interval_seconds = Number(process.env.POLL_INTERVAL_SECONDS) || Math.min(cfgPoll, 10);
 
 // Lista viva: estáticos do config.json + dinâmicos vindos do painel (MIKROTIK_CONFIG_URL)
 let concentradores = [...staticConcentradores];
