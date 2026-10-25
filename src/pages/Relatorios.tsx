@@ -125,7 +125,6 @@ export default function Relatorios() {
 
   const logs = useMemo(() => (logQ.data ?? []).filter((l) => logFilter === "all" || (logFilter === "ok" ? l.success : !l.success)), [logQ.data, logFilter]);
   const rules = rulesQ.data ?? [];
-  const SaveBar = () => isAdmin ? <div className="mt-4 flex justify-end"><Button onClick={save} disabled={busy}>Salvar alterações</Button></div> : null;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -286,7 +285,6 @@ export default function Relatorios() {
           </Card>
         </TabsContent>
       </Tabs>
-      <SaveBar />
     </div>
   );
 }
