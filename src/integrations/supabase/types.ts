@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      access_authorizations: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          email: string
+          full_name: string | null
+          id: string
+          organization_id: string | null
+          role: Database["public"]["Enums"]["app_role"]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          email: string
+          full_name?: string | null
+          id?: string
+          organization_id?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          organization_id?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "access_authorizations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           created_at: string
@@ -1488,6 +1532,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_list_accounts: {
+        Args: never
+        Returns: {
+          created_at: string
+          email: string
+          email_confirmed: boolean
+          last_sign_in_at: string
+          providers: string[]
+          user_id: string
+        }[]
+      }
       analise_24h: { Args: never; Returns: Json }
       client_drop_stats: {
         Args: { _concentrador: string; _username: string }
@@ -1499,6 +1554,26 @@ export type Database = {
           bucket_at: string
           online: number
         }[]
+      }
+      current_authorization: {
+        Args: { _user_id: string }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          email: string
+          full_name: string | null
+          id: string
+          organization_id: string | null
+          role: Database["public"]["Enums"]["app_role"]
+          status: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "access_authorizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       dashboard_summary: { Args: never; Returns: Json }
       eventos_page: {
@@ -1542,10 +1617,13 @@ export type Database = {
         Returns: boolean
       }
       inet_or_null: { Args: { _t: string }; Returns: unknown }
+      is_authorized: { Args: { _user_id: string }; Returns: boolean }
       is_org_member: {
         Args: { _org_id: string; _user_id: string }
         Returns: boolean
       }
+      my_access: { Args: never; Returns: Json }
+      normalize_email: { Args: { _e: string }; Returns: string }
       pppoe_clients_page: {
         Args: {
           _dir?: string
