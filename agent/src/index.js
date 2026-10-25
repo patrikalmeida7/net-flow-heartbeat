@@ -49,6 +49,11 @@ const {
   rbs = [],
 } = config;
 const poll_interval_seconds = Number(process.env.POLL_INTERVAL_SECONDS) || Math.min(cfgPoll, 10);
+// Se não vier no config, deriva a URL de métricas a partir da URL de ingestão
+const metrics_ingest_url =
+  cfgMetricsUrl || process.env.METRICS_INGEST_URL || (ingest_url ? ingest_url.replace(/agent-ingest\/?$/, "metrics-ingest") : null);
+// Interfaces físicas/lógicas via API RouterOS (sem SNMP) — throttle em 30s
+const lastIfPush = new Map();
 
 // Lista viva: estáticos do config.json + dinâmicos vindos do painel (MIKROTIK_CONFIG_URL)
 let concentradores = [...staticConcentradores];
@@ -256,6 +261,7 @@ async function tickRouterOs() {
       try {
         const payload = await collect(mk);
         const res = await send(payload);
+        pushRouterOsInterfaces(mk).catch((e) => log("WARN", `Interfaces ✗ ${label}: ${e.message}`));
         log(
           "INFO",
           `✓ ${label} | online=${payload.sessions.length} | new=${res.new_connections} | dis=${res.disconnections} | evt=${res.events}`,
