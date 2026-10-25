@@ -212,7 +212,12 @@ Deno.serve(async (req) => {
         updates.push(supabase.from("pppoe_sessions").update(upd).eq("id", id));
       }
     }
-    await Promise.all(updates);
+    const alertErrors: string[] = [];
+    const sessionUpdateErrors = (await Promise.all(updates))
+      .map((r) => (r as { error?: { message: string } | null }).error?.message)
+      .filter((m): m is string => !!m)
+      .slice(0, 5)
+      .map((m) => `sessão: ${m}`);
 
     // Inserir novas conexões
     if (newConnections.length > 0) {
@@ -263,13 +268,14 @@ Deno.serve(async (req) => {
         descricao: `Queda em massa: ${disconnected.length} clientes caíram juntos em ${c.nome ?? c.host}`,
         metadata: { scope: "mass", count: disconnected.length, usernames: disconnected.map((d) => d.username).slice(0, 500) },
       });
-      await supabase.from("alertas").insert({
+      const { error: aErr } = await supabase.from("alertas").insert({
         titulo: `Queda em massa: ${disconnected.length} clientes`,
         descricao: `${disconnected.length} de ${dbOnlineMap.size} clientes caíram ao mesmo tempo em ${c.nome ?? c.host}`,
         severidade: "critical",
         status: "active",
         concentrador_id: concentradorId,
       });
+      if (aErr) alertErrors.push(`alerta massa: ${aErr.message}`);
     } else {
       for (const d of disconnected) {
         events.push({
@@ -314,25 +320,32 @@ Deno.serve(async (req) => {
     }
 
     // 4) Snapshot de conexões (balde de 5 min, 1 por concentrador; ignora falhas de coleta)
+    const writeErrors: string[] = [];
     if (!collectionFailure) {
       const b = new Date(Math.floor(Date.now() / 300_000) * 300_000).toISOString();
-      await supabase.from("connection_snapshots").upsert(
+      const { error: snapErr } = await supabase.from("connection_snapshots").upsert(
         { concentrador_id: concentradorId, bucket_at: b, online_count: incomingOnline.size },
         { onConflict: "concentrador_id,bucket_at" },
       );
+      if (snapErr) writeErrors.push(`snapshot: ${snapErr.message}`);
       if (Math.random() < 0.01) {
-        await supabase.from("connection_snapshots").delete()
+        const { error: purgeErr } = await supabase.from("connection_snapshots").delete()
           .lt("bucket_at", new Date(Date.now() - 30 * 86400_000).toISOString());
+        if (purgeErr) writeErrors.push(`purge: ${purgeErr.message}`);
       }
     }
+    writeErrors.push(...sessionUpdateErrors, ...alertErrors);
+    if (writeErrors.length) console.error("agent-ingest write errors:", c.host, writeErrors);
 
     return json({
-      ok: true,
+      ok: writeErrors.length === 0,
       concentrador_id: concentradorId,
+      collection_failure: collectionFailure,
       synced: incomingOnline.size,
       new_connections: newConnections.length,
       disconnections: disconnected.length,
       events: events.length,
+      write_errors: writeErrors,
     });
   } catch (err) {
     console.error("agent-ingest error:", err);
