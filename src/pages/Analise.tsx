@@ -5,36 +5,36 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { MetricCard } from "@/components/MetricCard";
 import { formatBytes } from "@/lib/format";
+import { clientPath } from "@/lib/clientLink";
+import { QueryError } from "@/components/Pager";
 import { Activity, Download, Users, WifiOff } from "lucide-react";
 
-async function fetchAnalise() {
-  const since = new Date(Date.now() - 24 * 3600_000).toISOString();
-  const [ev, sess] = await Promise.all([
-    supabase.from("eventos").select("username, created_at").eq("tipo", "disconnect").gte("created_at", since).limit(10000),
-    supabase.from("pppoe_sessions").select("username, ip_address, bytes_in, bytes_out, online").eq("online", true).limit(10000),
-  ]);
-  const events = ev.data ?? [];
-  const sessions = sess.data ?? [];
+type A24 = {
+  individual_drops: number; mass_incidents: number; mass_affected: number; unstable: number;
+  by_hour: { h: string; n: number }[]; top: { concentrador_id: string; username: string; n: number }[];
+};
 
+async function fetchAnalise() {
+  const [an, top, sm] = await Promise.all([
+    supabase.rpc("analise_24h"),
+    supabase.rpc("pppoe_clients_page", { _status: "online", _sort: "traffic", _dir: "desc", _limit: 10, _offset: 0 }),
+    supabase.rpc("pppoe_summary"),
+  ]);
+  if (an.error) throw an.error;
+  if (top.error) throw top.error;
+  if (sm.error) throw sm.error;
+  const a = an.data as unknown as A24;
+  const byHourMap = new Map(a.by_hour.map((b) => [new Date(b.h).getHours(), b.n]));
   const byHour = Array.from({ length: 24 }, (_, i) => {
     const t = new Date(Date.now() - (23 - i) * 3600_000);
-    return { key: t.getHours(), hora: `${String(t.getHours()).padStart(2, "0")}h`, quedas: 0 };
+    return { hora: `${String(t.getHours()).padStart(2, "0")}h`, quedas: byHourMap.get(t.getHours()) ?? 0 };
   });
-  const byUser = new Map<string, number>();
-  for (const e of events) {
-    const h = new Date(e.created_at).getHours();
-    const slot = byHour.find((b) => b.key === h);
-    if (slot) slot.quedas++;
-    if (e.username) byUser.set(e.username, (byUser.get(e.username) ?? 0) + 1);
-  }
-  const topQuedas = [...byUser.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([username, quedas]) => ({ username, quedas }));
-  const topBanda = sessions
-    .map((s) => ({ username: s.username, ip: s.ip_address, down: s.bytes_in ?? 0, up: s.bytes_out ?? 0, total: (s.bytes_in ?? 0) + (s.bytes_out ?? 0) }))
-    .filter((s) => s.total > 0)
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
-  const instaveis = [...byUser.values()].filter((n) => n >= 3).length;
-  return { byHour, topQuedas, topBanda, totalQuedas: events.length, instaveis, online: sessions.length };
+  const topQuedas = a.top.map((t) => ({ key: `${t.concentrador_id}|${t.username}`, concentrador_id: t.concentrador_id, username: t.username, quedas: t.n }));
+  const topBanda = (top.data ?? [])
+    .map((s) => ({ key: s.id, concentrador_id: s.concentrador_id, username: s.username, down: s.bytes_in ?? 0, up: s.bytes_out ?? 0, total: (s.bytes_in ?? 0) + (s.bytes_out ?? 0) }))
+    .filter((s) => s.total > 0);
+  const summ = sm.data as { online_fresh: number };
+  return { byHour, topQuedas, topBanda, totalQuedas: a.individual_drops, mass: a.mass_incidents, massAffected: a.mass_affected, instaveis: a.unstable, online: summ.online_fresh };
 }
 
 export default function Analise() {
