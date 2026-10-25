@@ -227,8 +227,35 @@ export type Database = {
           },
         ]
       }
+      api_collection_slots: {
+        Row: {
+          agent_id: string
+          slot_at: string
+        }
+        Insert: {
+          agent_id: string
+          slot_at: string
+        }
+        Update: {
+          agent_id?: string
+          slot_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_collection_slots_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concentradores: {
         Row: {
+          api_interfaces_snapshot: Json | null
+          api_last_attempt_at: string | null
+          api_last_error: string | null
+          api_last_success_at: string | null
           cpu_load: number | null
           created_at: string
           host: string
@@ -243,6 +270,10 @@ export type Database = {
           observacoes: string | null
           offline_since: string | null
           organization_id: string | null
+          snmp_last_attempt_at: string | null
+          snmp_last_error: string | null
+          snmp_last_success_at: string | null
+          snmp_status: string
           status: Database["public"]["Enums"]["device_status"]
           ultima_coleta: string | null
           updated_at: string
@@ -252,6 +283,10 @@ export type Database = {
           vpn_connection_id: string | null
         }
         Insert: {
+          api_interfaces_snapshot?: Json | null
+          api_last_attempt_at?: string | null
+          api_last_error?: string | null
+          api_last_success_at?: string | null
           cpu_load?: number | null
           created_at?: string
           host: string
@@ -266,6 +301,10 @@ export type Database = {
           observacoes?: string | null
           offline_since?: string | null
           organization_id?: string | null
+          snmp_last_attempt_at?: string | null
+          snmp_last_error?: string | null
+          snmp_last_success_at?: string | null
+          snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
           updated_at?: string
@@ -275,6 +314,10 @@ export type Database = {
           vpn_connection_id?: string | null
         }
         Update: {
+          api_interfaces_snapshot?: Json | null
+          api_last_attempt_at?: string | null
+          api_last_error?: string | null
+          api_last_success_at?: string | null
           cpu_load?: number | null
           created_at?: string
           host?: string
@@ -289,6 +332,10 @@ export type Database = {
           observacoes?: string | null
           offline_since?: string | null
           organization_id?: string | null
+          snmp_last_attempt_at?: string | null
+          snmp_last_error?: string | null
+          snmp_last_success_at?: string | null
+          snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
           updated_at?: string
@@ -510,6 +557,7 @@ export type Database = {
         Row: {
           admin_status: string | null
           concentrador_id: string | null
+          counter_source: string | null
           created_at: string
           id: string
           if_alias: string | null
@@ -517,6 +565,7 @@ export type Database = {
           if_index: number
           if_name: string | null
           if_speed_bps: number | null
+          last_device_uptime: number | null
           last_in_octets: number | null
           last_out_octets: number | null
           last_sample_at: string | null
@@ -527,6 +576,7 @@ export type Database = {
         Insert: {
           admin_status?: string | null
           concentrador_id?: string | null
+          counter_source?: string | null
           created_at?: string
           id?: string
           if_alias?: string | null
@@ -534,6 +584,7 @@ export type Database = {
           if_index: number
           if_name?: string | null
           if_speed_bps?: number | null
+          last_device_uptime?: number | null
           last_in_octets?: number | null
           last_out_octets?: number | null
           last_sample_at?: string | null
@@ -544,6 +595,7 @@ export type Database = {
         Update: {
           admin_status?: string | null
           concentrador_id?: string | null
+          counter_source?: string | null
           created_at?: string
           id?: string
           if_alias?: string | null
@@ -551,6 +603,7 @@ export type Database = {
           if_index?: number
           if_name?: string | null
           if_speed_bps?: number | null
+          last_device_uptime?: number | null
           last_in_octets?: number | null
           last_out_octets?: number | null
           last_sample_at?: string | null
@@ -707,6 +760,7 @@ export type Database = {
           interface_id: string | null
           kind: Database["public"]["Enums"]["metric_kind"]
           rbs_id: string | null
+          source: string
           value: number
         }
         Insert: {
@@ -716,6 +770,7 @@ export type Database = {
           interface_id?: string | null
           kind: Database["public"]["Enums"]["metric_kind"]
           rbs_id?: string | null
+          source?: string
           value: number
         }
         Update: {
@@ -725,6 +780,7 @@ export type Database = {
           interface_id?: string | null
           kind?: Database["public"]["Enums"]["metric_kind"]
           rbs_id?: string | null
+          source?: string
           value?: number
         }
         Relationships: [
@@ -1126,8 +1182,13 @@ export type Database = {
           longitude: number | null
           nome: string
           observacoes: string | null
+          organization_id: string | null
           perda_pct: number | null
           ping_ms: number | null
+          snmp_last_attempt_at: string | null
+          snmp_last_error: string | null
+          snmp_last_success_at: string | null
+          snmp_status: string
           status: Database["public"]["Enums"]["device_status"]
           ultima_coleta: string | null
           updated_at: string
@@ -1144,8 +1205,13 @@ export type Database = {
           longitude?: number | null
           nome: string
           observacoes?: string | null
+          organization_id?: string | null
           perda_pct?: number | null
           ping_ms?: number | null
+          snmp_last_attempt_at?: string | null
+          snmp_last_error?: string | null
+          snmp_last_success_at?: string | null
+          snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
           updated_at?: string
@@ -1162,8 +1228,13 @@ export type Database = {
           longitude?: number | null
           nome?: string
           observacoes?: string | null
+          organization_id?: string | null
           perda_pct?: number | null
           ping_ms?: number | null
+          snmp_last_attempt_at?: string | null
+          snmp_last_error?: string | null
+          snmp_last_success_at?: string | null
+          snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
           updated_at?: string
@@ -1171,6 +1242,13 @@ export type Database = {
           vpn_connection_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "rbs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rbs_vpn_connection_id_fkey"
             columns: ["vpn_connection_id"]
@@ -1182,6 +1260,7 @@ export type Database = {
       }
       snmp_credentials: {
         Row: {
+          agent_id: string | null
           auth_password: string | null
           auth_proto: Database["public"]["Enums"]["snmp_auth_proto"]
           community: string | null
@@ -1191,6 +1270,7 @@ export type Database = {
           id: string
           last_error: string | null
           last_poll_at: string | null
+          organization_id: string | null
           poll_interval_seconds: number
           port: number
           priv_password: string | null
@@ -1203,6 +1283,7 @@ export type Database = {
           version: Database["public"]["Enums"]["snmp_version"]
         }
         Insert: {
+          agent_id?: string | null
           auth_password?: string | null
           auth_proto?: Database["public"]["Enums"]["snmp_auth_proto"]
           community?: string | null
@@ -1212,6 +1293,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           last_poll_at?: string | null
+          organization_id?: string | null
           poll_interval_seconds?: number
           port?: number
           priv_password?: string | null
@@ -1224,6 +1306,7 @@ export type Database = {
           version?: Database["public"]["Enums"]["snmp_version"]
         }
         Update: {
+          agent_id?: string | null
           auth_password?: string | null
           auth_proto?: Database["public"]["Enums"]["snmp_auth_proto"]
           community?: string | null
@@ -1233,6 +1316,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           last_poll_at?: string | null
+          organization_id?: string | null
           poll_interval_seconds?: number
           port?: number
           priv_password?: string | null
@@ -1246,10 +1330,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "snmp_credentials_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "snmp_credentials_concentrador_id_fkey"
             columns: ["concentrador_id"]
             isOneToOne: false
             referencedRelation: "concentradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "snmp_credentials_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
           {
@@ -1544,6 +1642,7 @@ export type Database = {
         }[]
       }
       analise_24h: { Args: never; Returns: Json }
+      claim_api_collection_slot: { Args: { _agent: string }; Returns: boolean }
       client_drop_stats: {
         Args: { _concentrador: string; _username: string }
         Returns: Json
@@ -1655,6 +1754,10 @@ export type Database = {
       purge_old_metric_samples: { Args: never; Returns: undefined }
       release_job_lock: {
         Args: { _holder: string; _name: string }
+        Returns: undefined
+      }
+      save_snmp_credentials: {
+        Args: { _id: string; _values: Json }
         Returns: undefined
       }
       set_device_credential_password: {
