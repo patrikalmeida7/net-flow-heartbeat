@@ -60,12 +60,15 @@ export default function AdminMikrotikApi() {
       port: Number(form.port) || 8728, use_tls: form.use_tls, username: form.username.trim(),
       routeros_version: form.routeros_version,
     }).select("id").single();
-    if (!error && data) {
-      const r = await supabase.rpc("set_mikrotik_api_password", { _id: data.id, _password: form.password });
-      if (r.error) toast.error(r.error.message);
+    if (error) { setSaving(false); return toast.error(error.message); }
+    const r = await supabase.rpc("set_mikrotik_api_password", { _id: data.id, _password: form.password });
+    if (r.error) {
+      await supabase.from("mikrotik_api_credentials").delete().eq("id", data.id);
+      setSaving(false);
+      qc.invalidateQueries({ queryKey: ["mk-api"] });
+      return toast.error("Não foi possível salvar a senha: " + r.error.message);
     }
     setSaving(false);
-    if (error) return toast.error(error.message);
     setScript(buildMikrotikScript({ ...form, port: Number(form.port) || 8728 }));
     setOpen(false);
     toast.success("MikroTik cadastrado. O coletor começa a monitorar em até 1 minuto.");
