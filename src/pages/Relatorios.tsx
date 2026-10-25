@@ -78,7 +78,7 @@ export default function Relatorios() {
     qc.invalidateQueries({ queryKey: ["notif-log"] });
   };
 
-  const updateRule = async (id: string, patch: Record<string, unknown>) => {
+  const updateRule = async (id: string, patch: { enabled?: boolean; send_whatsapp?: boolean; include_in_daily?: boolean; threshold?: number }) => {
     const { error } = await supabase.from("alert_rules").update(patch).eq("id", id);
     if (error) return toast.error(error.message);
     qc.invalidateQueries({ queryKey: ["alert-rules"] });
