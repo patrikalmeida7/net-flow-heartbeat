@@ -39,6 +39,7 @@ interface IngestPayload {
   concentrador: ConcentradorPayload;
   sessions: SessionPayload[];
   collected_at?: string;
+  error?: string;
 }
 
 Deno.serve(async (req) => {
@@ -93,7 +94,7 @@ Deno.serve(async (req) => {
     // 1) Upsert concentrador (chave: host)
     const { data: existing, error: selErr } = await supabase
       .from("concentradores")
-      .select("id, status, usuarios_online")
+      .select("id, status, usuarios_online, offline_since")
       .eq("host", c.host)
       .maybeSingle();
 
@@ -108,21 +109,31 @@ Deno.serve(async (req) => {
       previousStatus = existing.status;
       previousOnline = existing.usuarios_online ?? 0;
 
-      const { error: updErr } = await supabase
-        .from("concentradores")
-        .update({
-          nome: c.nome ?? undefined,
-          identidade: c.identidade ?? null,
-          modelo: c.modelo ?? null,
-          versao_routeros: c.versao_routeros ?? null,
-          status: c.status ?? "online",
-          cpu_load: c.cpu_load ?? null,
-          memory_used_pct: c.memory_used_pct ?? null,
-          uptime_seconds: c.uptime_seconds ?? null,
-          usuarios_online: c.usuarios_online ?? body.sessions.filter((s) => s.online).length,
-          ultima_coleta: now,
-        })
-        .eq("id", concentradorId);
+      const isOffline = c.status === "offline";
+      // Falha de coleta NÃO renova ultima_coleta; offline_since guarda o início contínuo da queda.
+      const patch: Record<string, unknown> = isOffline
+        ? {
+            status: "offline",
+            last_collect_attempt_at: now,
+            last_collect_error: body.error ?? "Sem resposta da API RouterOS",
+            ...(existing.status === "offline" && existing.offline_since ? {} : { offline_since: existing.offline_since ?? now }),
+          }
+        : {
+            nome: c.nome ?? undefined,
+            identidade: c.identidade ?? null,
+            modelo: c.modelo ?? null,
+            versao_routeros: c.versao_routeros ?? null,
+            status: c.status ?? "online",
+            cpu_load: c.cpu_load ?? null,
+            memory_used_pct: c.memory_used_pct ?? null,
+            uptime_seconds: c.uptime_seconds ?? null,
+            usuarios_online: c.usuarios_online ?? body.sessions.filter((s) => s.online).length,
+            ultima_coleta: now,
+            last_collect_attempt_at: now,
+            last_collect_error: null,
+            offline_since: null,
+          };
+      const { error: updErr } = await supabase.from("concentradores").update(patch).eq("id", concentradorId);
       if (updErr) throw updErr;
     } else {
       const { data: ins, error: insErr } = await supabase
