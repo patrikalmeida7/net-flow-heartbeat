@@ -95,56 +95,21 @@ async function deliver(s: Settings, ruleKey: string, dedupe: string, text: strin
 async function collectAlerts(rules: Map<string, Rule>) {
   const out: { key: string; dedupe: string; text: string; cooldown: number; critical?: boolean }[] = [];
   const on = (k: string) => { const r = rules.get(k); return r && r.enabled && r.send_whatsapp ? r : null; };
-  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta,offline_since");
+  const { data: concs } = await sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta,offline_since,snmp_last_success_at,snmp_status");
   for (const c of concs ?? []) {
+    const freshSnmp = !!c.snmp_last_success_at && Date.now()-Date.parse(c.snmp_last_success_at)<=120000;
     let r = on("concentrador_down");
-    if (r && offlineBeyondTolerance(c, r.tolerance_minutes)) {
+    if (r && c.snmp_status === "unreachable" && offlineBeyondTolerance({...c,status:"offline"}, r.tolerance_minutes)) {
       const desde = c.offline_since ? new Date(c.offline_since).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : "?";
-      out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}:${c.offline_since ?? ""}`, cooldown: r.cooldown_minutes, text: `🔴 *Concentrador offline*\n${c.nome} sem resposta desde ${desde}.` });
+      out.push({ key: r.rule_key, critical: true, dedupe: `down:${c.id}:${c.offline_since ?? ""}`, cooldown: r.cooldown_minutes, text: `🟠 *Monitoramento SNMP indisponível*\n${c.nome} sem resposta SNMP desde ${desde}. Equipamento desligado não confirmado.` });
     }
     r = on("cpu_high");
-    if (r && (c.cpu_load ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `cpu:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *CPU alta*\n${c.nome}: ${c.cpu_load}% (limite ${r.threshold}%)` });
+    if (r && freshSnmp && c.cpu_load != null && (c.cpu_load ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `cpu:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *CPU alta*\n${c.nome}: ${c.cpu_load}% (limite ${r.threshold}%)` });
     r = on("memory_high");
-    if (r && (c.memory_used_pct ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `mem:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *Memória alta*\n${c.nome}: ${c.memory_used_pct}% (limite ${r.threshold}%)` });
+    if (r && freshSnmp && c.memory_used_pct != null && (c.memory_used_pct ?? 0) >= r.threshold) out.push({ key: r.rule_key, dedupe: `mem:${c.id}`, cooldown: r.cooldown_minutes, text: `🟠 *Memória alta*\n${c.nome}: ${c.memory_used_pct}% (limite ${r.threshold}%)` });
   }
-  let r = on("online_drop");
-  if (r && r.threshold > 0) {
-    // Só avalia com dados frescos: coletor parado não vira "clientes abaixo do limite"
-    const fresh = new Date(Date.now() - 5 * 60000).toISOString();
-    const { count } = await sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh);
-    const anyFresh = (concs ?? []).some((c) => c.ultima_coleta && c.ultima_coleta >= fresh);
-    if (anyFresh && (count ?? 0) < r.threshold) out.push({ key: r.rule_key, critical: true, dedupe: "online_drop", cooldown: r.cooldown_minutes, text: `🔴 *Clientes online abaixo do limite*\nAgora: ${count} (limite ${r.threshold})` });
-  }
-  r = on("mass_disconnect");
-  if (r) {
-    const win = Math.max(1, r.window_minutes ?? 5);
-    const since = new Date(Date.now() - win * 60000).toISOString();
-    const { data } = await sb.from("eventos").select("concentrador_id").eq("tipo", "disconnect").gte("created_at", since);
-    const { data: mass } = await sb.from("eventos").select("concentrador_id, metadata").eq("tipo", "device_down").eq("metadata->>scope", "mass").gte("created_at", since);
-    const by = new Map<string, number>();
-    for (const e of data ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + 1);
-    for (const e of mass ?? []) by.set(e.concentrador_id ?? "?", (by.get(e.concentrador_id ?? "?") ?? 0) + Number((e.metadata as any)?.count ?? 0));
-    for (const [cid, n] of by) if (n >= r.threshold) {
-      const nome = (concs ?? []).find((c) => c.id === cid)?.nome ?? "concentrador";
-      out.push({ key: r.rule_key, critical: true, dedupe: `mass:${cid}`, cooldown: r.cooldown_minutes, text: `🚨 *Queda em massa*\n${n} clientes caíram nos últimos ${win} min em ${nome}.` });
-    }
-  }
-  r = on("client_unstable");
-  if (r) {
-    // Só quedas individuais; agrupadas por concentrador+login para não misturar logins iguais
-    const since = new Date(Date.now() - 86400000).toISOString();
-    const { data } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", since).limit(50000);
-    const by = new Map<string, { u: string; cid: string; n: number }>();
-    for (const e of data ?? []) if (e.username) {
-      const k = `${e.concentrador_id ?? "?"}|${e.username}`;
-      const cur = by.get(k) ?? { u: e.username, cid: e.concentrador_id ?? "?", n: 0 };
-      cur.n++; by.set(k, cur);
-    }
-    for (const v of by.values()) if (v.n >= r.threshold) {
-      const nome = (concs ?? []).find((c) => c.id === v.cid)?.nome ?? "";
-      out.push({ key: r.rule_key, dedupe: `unstable:${v.cid}:${v.u}`, cooldown: r.cooldown_minutes, text: `⚠️ *Cliente instável*\n${v.u}${nome ? ` (${nome})` : ""}: ${v.n} quedas individuais nas últimas 24h.` });
-    }
-  }
+  // PPPoE real-time alert rules remain configured but cannot execute without confirmed events.
+  let r: Rule | null = null;
   r = on("system_alerts");
   if (r) {
     const since = new Date(Date.now() - 10 * 60000).toISOString();
@@ -155,7 +120,7 @@ async function collectAlerts(rules: Map<string, Rule>) {
   if (r) {
     // Baseline = última alteração da regra: ao ativar, eventos antigos não são enviados.
     const baseline = (r as Rule & { updated_at?: string }).updated_at ?? new Date().toISOString();
-    const { data: ev } = await sb.from("eventos").select("id,concentrador_id,created_at,metadata").eq("tipo", "device_up").gte("created_at", baseline).limit(200);
+    const { data: ev } = await sb.from("eventos").select("id,concentrador_id,created_at,metadata").eq("tipo", "device_up").eq("metadata->>source","snmp").gte("created_at", baseline).limit(200);
     for (const x of recoveryCandidates((ev ?? []) as UpEvent[], (concs ?? []) as ConcState[], baseline))
       out.push({ key: r.rule_key, critical: true, dedupe: x.dedupe, cooldown: 0, text: x.text });
   }
@@ -165,23 +130,23 @@ async function collectAlerts(rules: Map<string, Rule>) {
 async function buildHealth() {
   const fresh = new Date(Date.now() - FRESH_MS).toISOString();
   const [{ data: concs }, { count: clients }, { count: crit }] = await Promise.all([
-    sb.from("concentradores").select("id,nome,status,ultima_coleta,usuarios_online"),
+    sb.from("concentradores").select("id,nome,status,ultima_coleta,usuarios_online,snmp_last_success_at,snmp_status"),
     sb.from("pppoe_sessions").select("id", { count: "exact", head: true }).eq("online", true).gte("ultima_atualizacao", fresh),
     sb.from("alertas").select("id", { count: "exact", head: true }).eq("severidade", "critical").eq("status", "active"),
   ]);
-  return healthSummary({ concs: (concs ?? []) as ConcState[], confirmedClients: clients ?? null, criticalAlerts: crit ?? 0 });
+  return healthSummary({ concs: (concs ?? []) as ConcState[], confirmedClients: null, criticalAlerts: crit ?? 0 });
 }
 
 function simulateTexts() {
   const now = Date.now();
   const since = new Date(now - 42 * 60000).toISOString(), up = new Date(now - 60000).toISOString();
   const rec = recoveryCandidates(
-    [{ id: "sim", concentrador_id: "sim", created_at: up, metadata: { offline_since: since } }],
-    [{ id: "sim", nome: "CONCENTRADOR EXEMPLO", status: "online", ultima_coleta: new Date(now).toISOString(), usuarios_online: 250 }],
+    [{ id: "sim", concentrador_id: "sim", created_at: up, metadata: { offline_since: since, source: "snmp" } }],
+    [{ id: "sim", nome: "CONCENTRADOR EXEMPLO", status: "online", ultima_coleta: new Date(now).toISOString(), snmp_last_success_at: new Date(now).toISOString(), snmp_status: "online" }],
     new Date(now - 3600000).toISOString(), now,
   )[0];
   return [
-    `🔴 *Concentrador offline*\nCONCENTRADOR EXEMPLO sem resposta desde ${fmtBahia(since)}.`,
+    `🟠 *Monitoramento SNMP indisponível*\nCONCENTRADOR EXEMPLO sem resposta desde ${fmtBahia(since)}.`,
     rec?.text ?? "",
   ];
 }
@@ -194,7 +159,7 @@ async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário
     sb.from("concentradores").select("id,nome,status,cpu_load,memory_used_pct,usuarios_online,ultima_coleta"),
     sb.from("alertas").select("id", { count: "exact", head: true }).gte("created_at", new Date(Date.now() - 86400000).toISOString()),
   ]);
-  const sm = (summary ?? {}) as Record<string, number>;
+  const sm = (summary ?? {}) as Record<string, number | string | null>;
   const a = (an ?? {}) as { individual_drops?: number; mass_incidents?: number; mass_affected?: number; top?: { concentrador_id: string; username: string; n: number }[] };
   const lim = rules.get("client_unstable")?.threshold ?? 5;
   const top = (a.top ?? []).slice(0, 5);
@@ -202,20 +167,15 @@ async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário
   const stale = Number(sm.online_stale ?? 0);
   const lines = [
     `📊 *${titulo}* — ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`, "",
-    `👥 Clientes online: *${sm.online_now ?? 0}*${stale ? ` (+${stale} sem atualização recente)` : ""}`,
-    `📉 Quedas individuais 24h: *${a.individual_drops ?? 0}*`,
-    `🚨 Quedas em massa 24h: *${a.mass_incidents ?? 0}* (${a.mass_affected ?? 0} clientes afetados)`,
+    `👥 Fotografia API PPPoE: *${sm.snapshot_online ?? "Sem dados"}* · ${sm.last_session_update ? fmtBahia(String(sm.last_session_update)) : "sincronização desconhecida"}`,
+    `📉 Histórico de quedas individuais 24h: *${a.individual_drops ?? 0}*`,
+    `🚨 Histórico de quedas em massa 24h: *${a.mass_incidents ?? 0}* (${a.mass_affected ?? 0} clientes afetados)`,
+    "Quedas e instabilidade em tempo real indisponíveis (PPPoE sincroniza a cada 6h).",
     `🔔 Alertas em 24h: *${alerts ?? 0}*`,
   ];
-  if (inc("client_unstable")) {
-    const { data: ev } = await sb.from("eventos").select("username,concentrador_id").eq("tipo", "disconnect").gte("created_at", new Date(Date.now() - 86400000).toISOString()).limit(50000);
-    const by = new Map<string, number>();
-    for (const e of ev ?? []) if (e.username) { const k = `${e.concentrador_id}|${e.username}`; by.set(k, (by.get(k) ?? 0) + 1); }
-    lines.push(`⚠️ Clientes com ${lim}+ quedas individuais: *${[...by.values()].filter((n) => n >= lim).length}*`);
-  }
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
     lines.push("", "*Concentradores*");
-    for (const c of concs ?? []) lines.push(`${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.usuarios_online} online`);
+    for (const c of concs ?? []) lines.push(`${c.status === "online" ? "🟢" : "🔴"} ${c.nome} — CPU ${c.cpu_load ?? "-"}% · Mem ${c.memory_used_pct ?? "-"}% · ${c.usuarios_online} na fotografia API`);
   }
   if (top.length) { lines.push("", "*Top quedas individuais*"); top.forEach((t, i) => lines.push(`${i + 1}. ${t.username}${nomeC(t.concentrador_id) ? ` (${nomeC(t.concentrador_id)})` : ""} — ${t.n}`)); }
   return lines.join("\n");

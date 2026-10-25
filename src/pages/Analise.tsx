@@ -33,8 +33,8 @@ async function fetchAnalise() {
   const topBanda = (top.data ?? [])
     .map((s) => ({ key: s.id, concentrador_id: s.concentrador_id, username: s.username, down: s.bytes_in ?? 0, up: s.bytes_out ?? 0, total: (s.bytes_in ?? 0) + (s.bytes_out ?? 0) }))
     .filter((s) => s.total > 0);
-  const summ = sm.data as { online_fresh: number };
-  return { byHour, topQuedas, topBanda, totalQuedas: a.individual_drops, mass: a.mass_incidents, massAffected: a.mass_affected, instaveis: a.unstable, online: summ.online_fresh };
+  const summ = sm.data as { snapshot_online: number | null };
+  return { byHour, topQuedas, topBanda, totalQuedas: a.individual_drops, mass: a.mass_incidents, massAffected: a.mass_affected, instaveis: a.unstable, online: summ.snapshot_online };
 }
 
 export default function Analise() {
@@ -46,13 +46,13 @@ export default function Analise() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Análise de Clientes</h1>
-        <p className="text-sm text-muted-foreground">Quedas e consumo de banda nas últimas 24 horas</p>
+        <p className="text-sm text-muted-foreground">Histórico de quedas preservado · consumo da fotografia API; quedas em tempo real indisponíveis</p>
       </div>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <MetricCard label="Clientes online (confirmados)" value={data ? data.online : "—"} icon={<Users className="h-4 w-4" />} tone="online" />
+        <MetricCard label="Clientes na fotografia API" value={data ? data.online ?? "Sem dados" : "—"} icon={<Users className="h-4 w-4" />} tone="online" />
         <MetricCard label="Quedas individuais 24h" value={data ? data.totalQuedas : "—"} icon={<WifiOff className="h-4 w-4" />} tone="offline" hint={data ? `${data.mass} quedas em massa (${data.massAffected} clientes afetados)` : undefined} />
-        <MetricCard label="Clientes instáveis (3+)" value={data ? data.instaveis : "—"} icon={<Activity className="h-4 w-4" />} tone="warning" />
+        <MetricCard label="Histórico com 3+ quedas" value={data ? data.instaveis : "—"} icon={<Activity className="h-4 w-4" />} tone="warning" />
         <MetricCard label="Maior consumo" value={data?.topBanda[0] ? formatBytes(data.topBanda[0].total) : "—"} icon={<Download className="h-4 w-4" />} tone="primary" />
       </div>
 
@@ -97,7 +97,7 @@ export default function Analise() {
         </Card>
 
         <Card className="p-4">
-          <h2 className="mb-3 font-medium">Top 10 — maior consumo de banda (sessão atual)</h2>
+          <h2 className="mb-3 font-medium">Top 10 — maior consumo de banda (fotografia API)</h2>
           {data?.topBanda.length ? (
             <>
               <div className="h-72">

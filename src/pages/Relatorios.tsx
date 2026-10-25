@@ -143,13 +143,13 @@ export default function Relatorios() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Relatórios e Alertas</h1>
-          <p className="text-sm text-muted-foreground">Central de notificações via WhatsApp (Evolution API)</p>
+          <p className="text-sm text-muted-foreground">SNMP principal · avisos PPPoE em tempo real indisponíveis sem eventos confirmados</p>
         </div>
         <Badge variant={s.enabled ? "default" : "secondary"}>{s.enabled ? "Envio automático ligado" : "Envio automático desligado"}</Badge>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-4">
-        {[["Clientes online", resumoQ.data?.online], ["Quedas 24h", resumoQ.data?.drops], ["Alertas ativos", resumoQ.data?.alertas], ["Regras ativas", `${rules.filter((r) => r.enabled).length}/${rules.length}`]].map(([l, v]) => (
+        {[["PPPoE na fotografia API", resumoQ.data?.online], ["Quedas 24h", resumoQ.data?.drops], ["Alertas ativos", resumoQ.data?.alertas], ["Regras ativas", `${rules.filter((r) => r.enabled).length}/${rules.length}`]].map(([l, v]) => (
           <Card key={l as string} className="bg-gradient-card p-4 shadow-card">
             <div className="text-xs uppercase tracking-wider text-muted-foreground">{l}</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums">{v ?? "—"}</div>
@@ -173,7 +173,8 @@ export default function Relatorios() {
             <Card key={r.id} className={`bg-gradient-card p-4 shadow-card ${r.enabled ? "" : "opacity-60"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-[200px] flex-1">
-                  <div className="font-medium">{r.label}</div>
+                  <div className="font-medium">{r.rule_key === "concentrador_down" ? "Monitoramento SNMP indisponível" : r.label}</div>
+                  {["mass_disconnect","client_unstable","online_drop"].includes(r.rule_key) && <p className="text-xs text-status-warning">Indisponível: fotografias API não comprovam quedas em tempo real. Configuração preservada.</p>}
                   <div className="text-xs text-muted-foreground">{r.descricao}</div>
                 </div>
                 <label className="flex items-center gap-2 text-sm"><Switch checked={r.enabled} disabled={!isAdmin} onCheckedChange={(v) => updateRule(r.id, { enabled: v })} />Ativo</label>

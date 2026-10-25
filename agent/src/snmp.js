@@ -76,6 +76,7 @@ function getAsync(session, oids) {
 function subtreeAsync(session, oid, maxRows = 500) {
   return new Promise((resolve, reject) => {
     const out = [];
+    const optionalTimeout = setTimeout(() => resolve(out), 6000);
     session.subtree(
       oid,
       20, // maxRepetitions
@@ -86,7 +87,7 @@ function subtreeAsync(session, oid, maxRows = 500) {
           if (out.length >= maxRows) return false;
         }
       },
-      (err) => (err ? reject(err) : resolve(out)),
+      (err) => { clearTimeout(optionalTimeout); err ? reject(err) : resolve(out); },
     );
   });
 }
@@ -98,10 +99,15 @@ function tailIndex(oid, prefix) {
 // ---------- Coleta principal ----------
 export async function collectSnmp(target, cfg) {
   const session = buildSession(target, cfg);
+  let timer;
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => { try { session.close(); } catch {} reject(new Error("SNMP: timeout total 29000ms")); }, 29000);
+  });
   try {
-    // Sistema (em paralelo)
-    const [sysVarbinds, cpuRows, memTypes, memSizes, memUsed] = await Promise.all([
-      getAsync(session, [OID.sysUpTime]).catch(() => []),
+    return await Promise.race([expired, (async () => {
+    const sysVarbinds = await getAsync(session, [OID.sysUpTime]);
+    // Optional unsupported OIDs do not invalidate a valid sysUpTime response.
+    const [cpuRows, memTypes, memSizes, memUsed] = await Promise.all([
       subtreeAsync(session, OID.hrProcessorLoad).catch(() => []),
       subtreeAsync(session, OID.hrStorageType).catch(() => []),
       subtreeAsync(session, OID.hrStorageSize).catch(() => []),
@@ -109,8 +115,9 @@ export async function collectSnmp(target, cfg) {
     ]);
 
     // sysUpTime vem em centésimos de segundo (TimeTicks)
-    const upTicks = Number(sysVarbinds?.[0]?.value ?? 0);
-    const uptime_seconds = upTicks ? Math.round(upTicks / 100) : null;
+    const upTicks = Number(sysVarbinds?.[0]?.value);
+    if (!Number.isFinite(upTicks)) throw new Error("SNMP: sem resposta válida de sysUpTime");
+    const uptime_seconds = Math.round(upTicks / 100);
 
     // CPU: média entre cores
     let cpu_load = null;
@@ -202,8 +209,10 @@ export async function collectSnmp(target, cfg) {
       });
     }
 
-    return { uptime_seconds, cpu_load, memory_used_pct, interfaces };
+    return { snmp_valid: true, uptime_seconds, cpu_load, memory_used_pct, interfaces };
+    })()]);
   } finally {
+    clearTimeout(timer);
     try { session.close(); } catch { /* noop */ }
   }
 }

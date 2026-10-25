@@ -10,12 +10,12 @@ export function useCollectionHealth() {
     refetchInterval: 15000,
     queryFn: async () => {
       const [c, a] = await Promise.all([
-        supabase.from("concentradores").select("id, nome, status, ultima_coleta, last_collect_error, offline_since"),
+        supabase.from("concentradores").select("id, nome, status, ultima_coleta, last_collect_error, offline_since, snmp_last_success_at, snmp_status"),
         supabase.from("agents").select("last_seen_at").eq("enabled", true),
       ]);
       if (c.error) throw c.error;
       const agentSeen = (a.data ?? []).map((x) => x.last_seen_at).filter(Boolean).sort().pop() ?? null;
-      return { devices: c.data ?? [], agentSeen };
+      return { devices: (c.data ?? []).map((d)=>({...d,ultima_coleta:d.snmp_last_success_at,status:d.snmp_status === "unreachable" ? "offline" : "online"})), agentSeen };
     },
   });
   const h = devicesHealth(q.data?.devices ?? []);

@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBytes, formatUptime, timeAgo } from "@/lib/format";
 import { clientPath, pageInfo, PAGE_SIZE } from "@/lib/clientLink";
-import { SESSION_STALE_MS } from "@/lib/collectionHealth";
+
 import { Pager, QueryError } from "@/components/Pager";
 
 export default function ClienteDetalhe() {
@@ -82,7 +82,7 @@ export default function ClienteDetalhe() {
 
   const s = base.data?.session;
   const st = base.data?.stats;
-  const stale = !!s?.online && Date.now() - new Date(s.ultima_atualizacao).getTime() > SESSION_STALE_MS;
+  const stale = true;
   const instavel = (st?.individual_24h ?? 0) >= 3;
   const rows = ev.data ?? [];
   const total = Number(rows[0]?.total_count ?? 0);
@@ -90,13 +90,13 @@ export default function ClienteDetalhe() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <Header user={user} sub={`Monitoramento individual · ${base.data?.conc ?? "concentrador"}`} />
+      <Header user={user} sub={`Fotografia API (00/06/12/18 America/Bahia) · ${base.data?.conc ?? "concentrador"}`} />
       {base.isError ? <Card><QueryError onRetry={() => base.refetch()} what="o cliente" /></Card> : (
       <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Info label="Status" value={!base.data ? "…" : !s ? "Sem dados" : stale ? "Último estado: online" : s.online ? "Online" : "Offline"}
+        <Info label="Status" value={!base.data ? "…" : !s ? "Sem dados" : s.online ? "Presente na fotografia" : "Ausente na fotografia"}
           tone={stale ? undefined : s?.online ? "online" : "offline"} />
-        <Info label="Uptime" value={s?.online && !stale ? formatUptime(s.uptime_seconds) : "—"} />
+        <Info label="Uptime" value={s?.online ? formatUptime(s.uptime_seconds) : "—"} />
         <Info label="Quedas individuais 24h" value={st ? String(st.individual_24h) : "…"} tone={instavel ? "offline" : undefined} />
         <Info label="Quedas 7 dias" value={st ? `${st.individual_7d} individuais · ${st.mass_7d} em massa` : "…"} />
       </div>
@@ -106,15 +106,15 @@ export default function ClienteDetalhe() {
           <Field k="IP" v={s?.ip_address} />
           <Field k="MAC (Caller-ID)" v={s?.caller_id} />
           <Field k="Interface / Serviço" v={s?.interface} />
-          <Field k="Conectado" v={s?.conectado_em ? new Date(s.conectado_em).toLocaleString("pt-BR") : null} />
-          <Field k="Última queda" v={s?.desconectado_em ? new Date(s.desconectado_em).toLocaleString("pt-BR") : null} />
-          <Field k="Atualizado" v={s ? timeAgo(s.ultima_atualizacao) : null} />
-          <Field k="Download (sessão)" v={s?.bytes_in ? formatBytes(s.bytes_in) : "Sem dados"} />
-          <Field k="Upload (sessão)" v={s?.bytes_out ? formatBytes(s.bytes_out) : "Sem dados"} />
+          <Field k="Registro iniciado" v={s?.conectado_em ? new Date(s.conectado_em).toLocaleString("pt-BR") : null} />
+          <Field k="Última queda registrada" v={s?.desconectado_em ? new Date(s.desconectado_em).toLocaleString("pt-BR") : null} />
+          <Field k="Última sincronização API" v={s ? timeAgo(s.ultima_atualizacao) : null} />
+          <Field k="Download (sessão)" v={s?.bytes_in != null ? formatBytes(s.bytes_in) : "Sem dados"} />
+          <Field k="Upload (sessão)" v={s?.bytes_out != null ? formatBytes(s.bytes_out) : "Sem dados"} />
           <Field k="Registros de sessão" v={st ? String(st.sessions) : null} />
         </div>
-        {stale && <p className="mt-3 text-sm text-status-warning">Sem atualização do coletor há mais de 5 minutos — status exibido é o último conhecido.</p>}
-        {instavel && <p className="mt-3 text-sm font-medium text-status-offline">Cliente instável: 3 ou mais quedas individuais nas últimas 24h (quedas em massa não contam).</p>}
+        {stale && <p className="mt-3 text-sm text-status-warning">Fotografia API a cada 6h; estado atual e quedas entre sincronizações indisponíveis.</p>}
+        {instavel && <p className="mt-3 text-sm font-medium text-status-offline">Histórico: 3 ou mais quedas individuais registradas. Instabilidade atual não é inferida das fotografias.</p>}
       </Card>
 
       <Card className="bg-gradient-card shadow-card">

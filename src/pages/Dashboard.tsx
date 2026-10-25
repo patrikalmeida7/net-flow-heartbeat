@@ -15,7 +15,8 @@ import { healthLabel } from "@/lib/collectionHealth";
 const KEY_DASH = ["dashboard"] as const;
 
 type Summary = {
-  online_now: number;
+  snapshot_online: number | null;
+  online_now: number | null;
   online_stale: number;
   last_session_update: string | null;
   disconnected_24h_clients: number;
@@ -57,7 +58,7 @@ export default function Dashboard() {
   const { data, isError, refetch } = useQuery({ queryKey: KEY_DASH, queryFn: fetchDashboard, refetchInterval: 15000 });
   const health = useCollectionHealth();
 
-  const totalOnline = data?.summary?.online_now ?? 0;
+  const totalOnline = data?.summary?.snapshot_online;
   const concOnline = (data?.concentradores ?? []).filter((c) => c.status === "online").length;
   const concOffline = (data?.concentradores ?? []).filter((c) => c.status === "offline").length;
   const rbsOnline = (data?.rbs ?? []).filter((r) => r.status === "online").length;
@@ -81,35 +82,31 @@ export default function Dashboard() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard NOC</h1>
-        <p className="text-sm text-muted-foreground">Visão geral em tempo real da rede</p>
+        <p className="text-sm text-muted-foreground">SNMP principal · PPPoE: fotografias API 00/06/12/18 America/Bahia</p>
       </div>
 
       {/* Métricas principais */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="Usuários online (confirmados)"
-          value={data ? totalOnline.toLocaleString("pt-BR") : "—"}
+          label="PPPoE na última fotografia"
+          value={data ? totalOnline?.toLocaleString("pt-BR") ?? "Sem dados" : "—"}
           tone={(data?.summary?.online_stale ?? 0) > 0 ? "warning" : "online"}
           icon={<Users className="h-5 w-5" />}
-          hint={
-            (data?.summary?.online_stale ?? 0) > 0
-              ? `${data!.summary.online_stale} sem atualização há +5 min (último estado conhecido${data?.summary?.last_session_update ? `, ${timeAgo(data.summary.last_session_update)}` : ""})`
-              : `${data?.summary?.disconnected_24h_clients ?? 0} clientes com queda individual · ${data?.summary?.mass_incidents_24h ?? 0} quedas em massa (24h)`
-          }
+          hint={`API · última sincronização ${timeAgo(data?.summary?.last_session_update ?? null)} · tempo real indisponível`}
         />
         <MetricCard
           label="Concentradores"
           value={`${concOnline}/${(data?.concentradores ?? []).length}`}
           tone={concOffline > 0 ? "offline" : "online"}
           icon={<Server className="h-5 w-5" />}
-          hint={concOffline > 0 ? `${concOffline} offline` : "Todos operacionais"}
+          hint={concOffline > 0 ? `${concOffline} offline` : health.state === "ok" ? "SNMP recente" : "Sem confirmação recente"}
         />
         <MetricCard
           label="RBS / Torres"
           value={`${rbsOnline}/${(data?.rbs ?? []).length}`}
           tone={rbsOffline > 0 ? "offline" : "online"}
           icon={<Radio className="h-5 w-5" />}
-          hint={rbsOffline > 0 ? `${rbsOffline} offline` : "Todas operacionais"}
+          hint={rbsOffline > 0 ? `${rbsOffline} offline` : "Consulte o frescor por equipamento"}
         />
         <MetricCard
           label="Alertas ativos"
@@ -128,7 +125,7 @@ export default function Dashboard() {
               <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 Conexões PPPoE — últimas 24 horas
               </h2>
-              <p className="text-xs text-muted-foreground">Um ponto a cada 5 minutos, somando todos os concentradores</p>
+              <p className="text-xs text-muted-foreground">Fotografias API de 6h; pontos antigos preservados, sem inferir quedas</p>
             </div>
             <Activity className="h-4 w-4 text-primary" />
           </div>
@@ -213,7 +210,7 @@ export default function Dashboard() {
                     if (!dh || dh.state === "ok") return null;
                     return (
                       <div className="text-xs text-status-warning">
-                        {healthLabel[dh.state]} · dado válido {c.ultima_coleta ? timeAgo(c.ultima_coleta) : "nunca"}
+                        {healthLabel[dh.state]} · dado válido {c.snmp_last_success_at ? timeAgo(c.snmp_last_success_at) : "nunca"}
                         {c.offline_since ? ` · indisponível desde ${new Date(c.offline_since).toLocaleTimeString("pt-BR")}` : ""}
                         {c.last_collect_error ? ` · ${c.last_collect_error}` : ""}
                       </div>
@@ -222,9 +219,9 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-xs text-muted-foreground">
-                    {c.usuarios_online} usr{health.devices.find((d) => d.id === c.id)?.state !== "ok" ? " (último conhecido)" : ""}
+                    {c.api_last_success_at ? `${c.usuarios_online} usr (foto API)` : "PPPoE sem dados"}
                   </span>
-                  <StatusBadge status={c.status} />
+                  <StatusBadge status={health.devices.find((d)=>d.id===c.id)?.state === "ok" ? "online" : "unknown"} />
                 </div>
               </div>
             ))}

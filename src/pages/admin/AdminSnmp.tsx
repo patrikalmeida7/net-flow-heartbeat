@@ -17,17 +17,15 @@ const KEY = ["admin", "snmp"] as const;
 
 type Cred = {
   id: string;
+  agent_id: string | null;
   concentrador_id: string | null;
   rbs_id: string | null;
   enabled: boolean;
   version: "v2c" | "v3";
   port: number;
-  community: string | null;
   username: string | null;
   auth_proto: "none" | "MD5" | "SHA";
-  auth_password: string | null;
   priv_proto: "none" | "DES" | "AES";
-  priv_password: string | null;
   poll_interval_seconds: number;
   timeout_ms: number;
   retries: number;
@@ -36,6 +34,7 @@ type Cred = {
 };
 
 const formSchema = z.object({
+  agent_id: z.string().uuid("Selecione o agente"),
   target_kind: z.enum(["concentrador", "rbs"]),
   target_id: z.string().uuid("Selecione um equipamento"),
   enabled: z.boolean(),
@@ -55,6 +54,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 const blank: FormValues = {
+  agent_id: "",
   target_kind: "concentrador",
   target_id: "",
   enabled: true,
@@ -72,12 +72,15 @@ const blank: FormValues = {
 };
 
 async function fetchAll() {
-  const [creds, concs, rbs] = await Promise.all([
-    supabase.from("snmp_credentials").select("*").order("created_at", { ascending: false }),
+  const [creds, concs, rbs, agents] = await Promise.all([
+    supabase.from("snmp_credentials").select("id,concentrador_id,rbs_id,agent_id,organization_id,enabled,version,port,username,auth_proto,priv_proto,poll_interval_seconds,timeout_ms,retries,last_poll_at,last_error,created_at,updated_at").order("created_at", { ascending: false }),
     supabase.from("concentradores").select("id, nome, host").order("nome"),
     supabase.from("rbs").select("id, nome, host").order("nome"),
+    supabase.from("agents").select("id,nome").eq("enabled",true),
   ]);
+  if (creds.error || concs.error || rbs.error || agents.error) throw creds.error || concs.error || rbs.error || agents.error;
   return {
+    agents: agents.data ?? [],
     creds: (creds.data ?? []) as Cred[],
     concs: concs.data ?? [],
     rbs: rbs.data ?? [],
@@ -86,7 +89,7 @@ async function fetchAll() {
 
 export default function AdminSnmp() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: KEY, queryFn: fetchAll });
+  const { data, isError, refetch } = useQuery({ queryKey: KEY, queryFn: fetchAll });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Cred | null>(null);
   const [form, setForm] = useState<FormValues>(blank);
@@ -102,17 +105,18 @@ export default function AdminSnmp() {
   const openEdit = (c: Cred) => {
     setEditing(c);
     setForm({
+      agent_id: c.agent_id ?? "",
       target_kind: c.concentrador_id ? "concentrador" : "rbs",
-      target_id: (c.concentrador_id ?? c.rbs_id)!,
+      target_id: c.concentrador_id ?? c.rbs_id ?? "",
       enabled: c.enabled,
       version: c.version,
       port: c.port,
-      community: c.community ?? "",
+      community: "",
       username: c.username ?? "",
       auth_proto: c.auth_proto,
-      auth_password: c.auth_password ?? "",
+      auth_password: "",
       priv_proto: c.priv_proto,
-      priv_password: c.priv_password ?? "",
+      priv_password: "",
       poll_interval_seconds: c.poll_interval_seconds,
       timeout_ms: c.timeout_ms,
       retries: c.retries,
@@ -124,6 +128,7 @@ export default function AdminSnmp() {
     mutationFn: async (values: FormValues) => {
       const parsed = formSchema.parse(values);
       const row = {
+        agent_id: parsed.agent_id,
         concentrador_id: parsed.target_kind === "concentrador" ? parsed.target_id : null,
         rbs_id: parsed.target_kind === "rbs" ? parsed.target_id : null,
         enabled: parsed.enabled,
@@ -135,17 +140,12 @@ export default function AdminSnmp() {
         auth_password: parsed.version === "v3" && parsed.auth_proto !== "none" ? parsed.auth_password || null : null,
         priv_proto: parsed.version === "v3" ? parsed.priv_proto : "none",
         priv_password: parsed.version === "v3" && parsed.priv_proto !== "none" ? parsed.priv_password || null : null,
-        poll_interval_seconds: parsed.poll_interval_seconds,
+        poll_interval_seconds: 30,
         timeout_ms: parsed.timeout_ms,
         retries: parsed.retries,
       };
-      if (editing) {
-        const { error } = await supabase.from("snmp_credentials").update(row).eq("id", editing.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("snmp_credentials").insert(row);
-        if (error) throw error;
-      }
+      const {error} = await supabase.rpc("save_snmp_credentials", {_id:editing?.id ?? null,_values:row});
+      if(error) throw error;
     },
     onSuccess: () => {
       toast({ title: "Salvo" });
@@ -169,6 +169,7 @@ export default function AdminSnmp() {
 
   return (
     <div className="space-y-4">
+      {isError && <Button variant="outline" onClick={()=>refetch()}>Erro ao carregar — tentar novamente</Button>}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Credenciais SNMP</h2>
@@ -187,6 +188,7 @@ export default function AdminSnmp() {
               <DialogTitle>{editing ? "Editar credencial SNMP" : "Nova credencial SNMP"}</DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2"><Label>Agente coletor</Label><Select value={form.agent_id} onValueChange={(v)=>setForm({...form,agent_id:v})}><SelectTrigger><SelectValue placeholder="Selecione o agente" /></SelectTrigger><SelectContent>{data?.agents.map((a)=><SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent></Select></div>
               <div className="col-span-2">
                 <Label>Tipo de equipamento</Label>
                 <Select
@@ -232,7 +234,7 @@ export default function AdminSnmp() {
               {form.version === "v2c" ? (
                 <div className="col-span-2">
                   <Label>Community</Label>
-                  <Input value={form.community} onChange={(e) => setForm({ ...form, community: e.target.value })} />
+                  <Input placeholder={editing ? "Deixe vazio para manter" : "Community"} value={form.community} onChange={(e) => setForm({ ...form, community: e.target.value })} />
                 </div>
               ) : (
                 <>
@@ -285,7 +287,7 @@ export default function AdminSnmp() {
 
               <div>
                 <Label>Intervalo (s)</Label>
-                <Input type="number" value={form.poll_interval_seconds}
+                <Input disabled type="number" value={30}
                   onChange={(e) => setForm({ ...form, poll_interval_seconds: Number(e.target.value) })} />
               </div>
               <div>
@@ -327,7 +329,7 @@ export default function AdminSnmp() {
           </thead>
           <tbody>
             {(data?.creds ?? []).map((c) => {
-              const dev = c.concentrador_id ? concById.get(c.concentrador_id) : rbsById.get(c.rbs_id!);
+              const dev = c.concentrador_id ? concById.get(c.concentrador_id) : rbsById.get(c.rbs_id ?? "");
               return (
                 <tr key={c.id} className="border-t border-border">
                   <td className="px-3 py-2">
@@ -348,7 +350,7 @@ export default function AdminSnmp() {
                       <span className="text-xs text-status-offline" title={c.last_error}>
                         erro
                       </span>
-                    ) : (
+                    ) : !c.last_poll_at ? <span className="text-xs text-muted-foreground">Sem dados</span> : Date.now()-Date.parse(c.last_poll_at)>120000 ? <span className="text-xs text-status-warning">Dados atrasados</span> : (
                       <span className="inline-flex items-center gap-1 text-xs text-status-online">
                         <Power className="h-3 w-3" /> ok
                       </span>

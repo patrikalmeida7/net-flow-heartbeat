@@ -71,6 +71,20 @@
       "when": 1792958299858,
       "tag": "0009_restricted_access_authorizations",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792965633844,
+      "tag": "0010_snmp_primary_scheduled_api",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792965800956,
+      "tag": "0011_pppoe_snapshot_staleness",
+      "breakpoints": true
     }
   ]
 }

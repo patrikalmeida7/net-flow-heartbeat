@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Healthcheck do container noc-agent.
 # O loop principal (src/index.js) toca em /tmp/noc-agent.healthy
-# após cada tick bem-sucedido (RouterOS API ou SNMP).
+# somente após SNMP válido aceito pela ingestão. Heartbeat/API não renovam saúde.
 # Se esse arquivo ficar > MAX_AGE segundos sem ser atualizado,
 # o Docker marca o container como unhealthy e (se restart=always
 # + healthcheck integrado a um orquestrador) reinicia.
@@ -20,9 +20,9 @@ MTIME=$(stat -c %Y "$MARKER" 2>/dev/null || stat -f %m "$MARKER")
 AGE=$(( NOW - MTIME ))
 
 if [ "$AGE" -gt "$MAX_AGE" ]; then
-  echo "[healthcheck] FAIL: último tick há ${AGE}s (limite ${MAX_AGE}s)"
+  echo "[healthcheck] FAIL: último SNMP válido há ${AGE}s (limite ${MAX_AGE}s)"
   exit 1
 fi
 
-echo "[healthcheck] OK (último tick há ${AGE}s)"
+echo "[healthcheck] OK (último SNMP válido há ${AGE}s)"
 exit 0

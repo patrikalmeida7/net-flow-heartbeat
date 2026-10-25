@@ -20,43 +20,44 @@ Deno.serve(async (req) => {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
       auth: { persistSession: false },
     });
-    const { data: agent } = await sb.from("agents").select("id, enabled")
+    const { data: agent } = await sb.from("agents").select("id, enabled, organization_id")
       .eq("token_hash", await sha256Hex(m[1].trim())).maybeSingle();
     if (!agent || !agent.enabled) return json({ error: "invalid or disabled agent" }, 401);
 
     if (req.method === "GET") {
       const { data, error } = await sb.from("mikrotik_api_credentials")
-        .select("id, host, port, use_tls, username, routeros_version, concentrador_id, concentradores(nome)")
+        .select("id, host, port, use_tls, username, routeros_version, concentrador_id, organization_id, concentradores(nome)")
         .eq("agent_id", agent.id).eq("enabled", true);
       if (error) throw error;
       const devices = [];
       for (const d of data ?? []) {
         const { data: pw } = await sb.rpc("get_mikrotik_api_password", { _id: d.id });
-        if (!pw) continue;
-        // deno-lint-ignore no-explicit-any
-        const cid = (d as any).concentrador_id;
-        const { data: sn } = cid
-          ? await sb.from("snmp_credentials").select("*").eq("concentrador_id", cid).eq("enabled", true).maybeSingle()
-          : { data: null };
+        if (!pw || d.organization_id !== agent.organization_id) continue;
         devices.push({
-          id: d.id, host: d.host, port: d.port, tls: d.use_tls, user: d.username, password: pw,
+          id: d.id, concentrador_id: d.concentrador_id, host: d.host, port: d.port, tls: d.use_tls, user: d.username, password: pw,
           version: d.routeros_version,
-          snmp: sn ? {
-            enabled: true, version: sn.version, port: sn.port, community: sn.community,
-            username: sn.username, auth_proto: sn.auth_proto, auth_password: sn.auth_password,
-            priv_proto: sn.priv_proto, priv_password: sn.priv_password,
-            timeout_ms: sn.timeout_ms, retries: sn.retries,
-          } : undefined,
           // deno-lint-ignore no-explicit-any
           nome: (d as any).concentradores?.nome ?? d.host,
         });
       }
       await sb.from("agents").update({ last_seen_at: new Date().toISOString() }).eq("id", agent.id);
-      return json({ ok: true, devices });
+      const { data: snmpRows, error: snErr } = await sb.from("snmp_credentials").select("*,concentradores(id,nome,host,organization_id),rbs(id,nome,host,organization_id)").eq("agent_id",agent.id).eq("enabled",true);
+      if (snErr) throw snErr;
+      const snmp_targets = (snmpRows ?? []).flatMap((s: any) => {
+        const target = s.concentradores ?? s.rbs;
+        if (!target?.host || target.organization_id !== agent.organization_id || s.organization_id !== agent.organization_id) return [];
+        return [{target_id: target.id, kind: s.concentrador_id ? "concentrador" : "rbs", host: target.host, nome: target.nome, snmp: {enabled:true,version:s.version,port:s.port,community:s.community,username:s.username,auth_proto:s.auth_proto,auth_password:s.auth_password,priv_proto:s.priv_proto,priv_password:s.priv_password,timeout_ms:s.timeout_ms,retries:s.retries}}];
+      });
+      return json({ ok: true, devices, snmp_targets });
     }
 
     if (req.method === "POST") {
       const body = await req.json().catch(() => null);
+      if (body?.action === "claim_api_slot") {
+        const {data, error} = await sb.rpc("claim_api_collection_slot", {_agent: agent.id});
+        if (error) throw error;
+        return json({claimed: data === true});
+      }
       const results = Array.isArray(body?.results) ? body.results.slice(0, 500) : null;
       if (!results) return json({ error: "results[] required" }, 400);
       const now = new Date().toISOString();

@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { collectionHealth, devicesHealth } from "@/lib/collectionHealth";
+import { collectionHealth, devicesHealth, SESSION_STALE_MS } from "@/lib/collectionHealth";
 
 const now = Date.parse("2026-10-25T12:00:00Z");
 const ago = (ms: number) => new Date(now - ms).toISOString();
 
 describe("collectionHealth", () => {
+  it("fotografia PPPoE usa janela de seis horas, não cinco minutos", () => {
+    expect(SESSION_STALE_MS).toBe(6 * 60 * 60_000);
+  });
   it("no data when never collected", () => {
     expect(collectionHealth({ lastCollectAt: null, anyDeviceOffline: false, now })).toBe("no_data");
   });
