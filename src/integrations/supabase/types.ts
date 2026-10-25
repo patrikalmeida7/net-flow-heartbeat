@@ -273,6 +273,8 @@ export type Database = {
           snmp_last_attempt_at: string | null
           snmp_last_error: string | null
           snmp_last_success_at: string | null
+          snmp_persisted_at: string | null
+          snmp_persistence_error: string | null
           snmp_status: string
           status: Database["public"]["Enums"]["device_status"]
           ultima_coleta: string | null
@@ -304,6 +306,8 @@ export type Database = {
           snmp_last_attempt_at?: string | null
           snmp_last_error?: string | null
           snmp_last_success_at?: string | null
+          snmp_persisted_at?: string | null
+          snmp_persistence_error?: string | null
           snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
@@ -335,6 +339,8 @@ export type Database = {
           snmp_last_attempt_at?: string | null
           snmp_last_error?: string | null
           snmp_last_success_at?: string | null
+          snmp_persisted_at?: string | null
+          snmp_persistence_error?: string | null
           snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
@@ -565,11 +571,13 @@ export type Database = {
           if_index: number
           if_name: string | null
           if_speed_bps: number | null
+          in_counter_bits: number | null
           last_device_uptime: number | null
           last_in_octets: number | null
           last_out_octets: number | null
           last_sample_at: string | null
           oper_status: string | null
+          out_counter_bits: number | null
           rbs_id: string | null
           updated_at: string
         }
@@ -584,11 +592,13 @@ export type Database = {
           if_index: number
           if_name?: string | null
           if_speed_bps?: number | null
+          in_counter_bits?: number | null
           last_device_uptime?: number | null
           last_in_octets?: number | null
           last_out_octets?: number | null
           last_sample_at?: string | null
           oper_status?: string | null
+          out_counter_bits?: number | null
           rbs_id?: string | null
           updated_at?: string
         }
@@ -603,11 +613,13 @@ export type Database = {
           if_index?: number
           if_name?: string | null
           if_speed_bps?: number | null
+          in_counter_bits?: number | null
           last_device_uptime?: number | null
           last_in_octets?: number | null
           last_out_octets?: number | null
           last_sample_at?: string | null
           oper_status?: string | null
+          out_counter_bits?: number | null
           rbs_id?: string | null
           updated_at?: string
         }
@@ -1188,6 +1200,8 @@ export type Database = {
           snmp_last_attempt_at: string | null
           snmp_last_error: string | null
           snmp_last_success_at: string | null
+          snmp_persisted_at: string | null
+          snmp_persistence_error: string | null
           snmp_status: string
           status: Database["public"]["Enums"]["device_status"]
           ultima_coleta: string | null
@@ -1211,6 +1225,8 @@ export type Database = {
           snmp_last_attempt_at?: string | null
           snmp_last_error?: string | null
           snmp_last_success_at?: string | null
+          snmp_persisted_at?: string | null
+          snmp_persistence_error?: string | null
           snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
@@ -1234,6 +1250,8 @@ export type Database = {
           snmp_last_attempt_at?: string | null
           snmp_last_error?: string | null
           snmp_last_success_at?: string | null
+          snmp_persisted_at?: string | null
+          snmp_persistence_error?: string | null
           snmp_status?: string
           status?: Database["public"]["Enums"]["device_status"]
           ultima_coleta?: string | null
@@ -1358,6 +1376,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      snmp_ingest_receipts: {
+        Row: {
+          collected_at: string
+          payload: Json
+          result: Json
+          target_id: string
+        }
+        Insert: {
+          collected_at: string
+          payload: Json
+          result: Json
+          target_id: string
+        }
+        Update: {
+          collected_at?: string
+          payload?: Json
+          result?: Json
+          target_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
@@ -1723,6 +1762,10 @@ export type Database = {
       }
       my_access: { Args: never; Returns: Json }
       normalize_email: { Args: { _e: string }; Returns: string }
+      persist_snmp_batch: {
+        Args: { _agent: string; _at: string; _dev: Json }
+        Returns: Json
+      }
       pppoe_clients_page: {
         Args: {
           _dir?: string
