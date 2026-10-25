@@ -1,184 +1,172 @@
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { useAuth, type AppRole } from "@/hooks/useAuth";
-import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { normalizeEmail, type AppRole } from "@/lib/access";
 
-const ROLES: AppRole[] = ["admin", "tecnico", "visualizador"];
-
-interface UserRow {
-  id: string;
-  email: string | null;
-  full_name: string | null;
-  created_at: string;
-  roles: AppRole[];
-}
+const ROLES: AppRole[] = ["visualizador", "tecnico", "admin"];
+const NONE = "__none";
 
 export default function AdminUsuarios() {
   const qc = useQueryClient();
-  const { user: me } = useAuth();
-  const [addingFor, setAddingFor] = useState<string | null>(null);
+  const { user: me, refreshAccess } = useAuth();
+  const [form, setForm] = useState({ email: "", full_name: "", role: "visualizador" as AppRole, organization_id: NONE });
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["admin-usuarios"],
-    queryFn: async (): Promise<UserRow[]> => {
-      const { data: profiles, error: pErr } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, created_at")
-        .order("created_at", { ascending: false });
-      if (pErr) throw pErr;
-
-      const { data: roles, error: rErr } = await supabase
-        .from("user_roles")
-        .select("user_id, role");
-      if (rErr) throw rErr;
-
-      const byUser = new Map<string, AppRole[]>();
-      for (const r of roles ?? []) {
-        const arr = byUser.get(r.user_id) ?? [];
-        arr.push(r.role as AppRole);
-        byUser.set(r.user_id, arr);
-      }
-
-      return (profiles ?? []).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] }));
+  const auths = useQuery({
+    queryKey: ["access-authorizations"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("access_authorizations").select("*").order("created_at");
+      if (error) throw error;
+      return data ?? [];
     },
   });
+  const accounts = useQuery({
+    queryKey: ["admin-accounts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_list_accounts");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const orgs = useQuery({
+    queryKey: ["orgs-min"],
+    queryFn: async () => (await supabase.from("organizations").select("id, nome").order("nome")).data ?? [],
+  });
 
-  const addRole = async (userId: string, role: AppRole) => {
-    const { error } = await supabase.from("user_roles").insert({ user_id: userId, role });
-    setAddingFor(null);
-    if (error) {
-      if (error.code === "23505") {
-        toast.error("Usuário já possui esse papel");
-      } else {
-        toast.error("Erro ao adicionar papel", { description: error.message });
-      }
-      return;
-    }
-    toast.success("Papel adicionado");
-    qc.invalidateQueries({ queryKey: ["admin-usuarios"] });
+  const reload = () => {
+    qc.invalidateQueries({ queryKey: ["access-authorizations"] });
+    qc.invalidateQueries({ queryKey: ["admin-accounts"] });
+    refreshAccess();
+  };
+  const fail = (m: string, e: { message: string }) => toast.error(m, { description: e.message });
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = normalizeEmail(form.email);
+    if (!/^\S+@\S+\.\S+$/.test(email)) return toast.error("E-mail inválido");
+    const { error } = await supabase.from("access_authorizations").insert({
+      email,
+      full_name: form.full_name.trim() || null,
+      role: form.role,
+      organization_id: form.organization_id === NONE ? null : form.organization_id,
+      status: "active",
+    });
+    if (error) return fail(error.code === "23505" ? "E-mail já autorizado" : "Erro ao autorizar", error);
+    toast.success("Acesso autorizado");
+    setForm({ email: "", full_name: "", role: "visualizador", organization_id: NONE });
+    reload();
   };
 
-  const removeRole = async (userId: string, role: AppRole) => {
-    if (userId === me?.id && role === "admin") {
-      const { count } = await supabase
-        .from("user_roles")
-        .select("id", { count: "exact", head: true })
-        .eq("role", "admin");
-      if ((count ?? 0) <= 1) {
-        toast.error("Não é possível remover o último admin");
-        return;
-      }
-    }
-    const { error } = await supabase
-      .from("user_roles")
-      .delete()
-      .eq("user_id", userId)
-      .eq("role", role);
-    if (error) {
-      toast.error("Erro ao remover papel", { description: error.message });
-      return;
-    }
-    toast.success("Papel removido");
-    qc.invalidateQueries({ queryKey: ["admin-usuarios"] });
+  const update = async (id: string, patch: { role?: AppRole; status?: string }) => {
+    const { error } = await supabase.from("access_authorizations").update(patch).eq("id", id);
+    if (error) return fail("Não foi possível alterar", error);
+    toast.success("Acesso atualizado");
+    reload();
+  };
+  const remove = async (id: string) => {
+    const { error } = await supabase.from("access_authorizations").delete().eq("id", id);
+    if (error) return fail("Não foi possível remover", error);
+    toast.success("Autorização removida");
+    reload();
+  };
+  const sendReset = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
+    if (error) return fail("Falha ao enviar", error);
+    toast.success("Link de definição de senha enviado (se a conta existir)");
   };
 
-  const roleVariant = (r: AppRole) => {
-    if (r === "admin") return "default";
-    if (r === "tecnico") return "secondary";
-    return "outline";
-  };
+  const authorized = new Set((auths.data ?? []).map((a) => a.email));
+  const accountByEmail = new Map((accounts.data ?? []).map((a) => [a.email, a]));
+  const pending = (accounts.data ?? []).filter((a) => a.email && !authorized.has(a.email));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Gerencie papéis dos usuários. Novos cadastros recebem <code className="text-xs">visualizador</code> automaticamente.
+        Só entra quem estiver autorizado aqui, pelo e-mail exato (Google verificado ou e-mail/senha). Bloquear corta o acesso na hora, inclusive de quem já está logado.
       </p>
+
+      <form onSubmit={add} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
+        <div className="space-y-1 md:col-span-2">
+          <Label htmlFor="au-email">E-mail</Label>
+          <Input id="au-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="au-name">Nome</Label>
+          <Input id="au-name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Papel</Label>
+          <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as AppRole })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Empresa</Label>
+          <Select value={form.organization_id} onValueChange={(v) => setForm({ ...form, organization_id: v })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>—</SelectItem>
+              {(orgs.data ?? []).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="md:col-span-5">
+          <Button type="submit" size="sm" className="gap-2"><Plus className="h-4 w-4" /> Autorizar acesso</Button>
+        </div>
+      </form>
 
       <div className="rounded-md border border-border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Usuário</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Papéis</TableHead>
-              <TableHead className="w-48">Adicionar papel</TableHead>
+              <TableHead>Autorizado</TableHead>
+              <TableHead>Papel</TableHead>
+              <TableHead>Situação</TableHead>
+              <TableHead>Conta</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>
-            )}
-            {!isLoading && data?.length === 0 && (
-              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Nenhum usuário.</TableCell></TableRow>
-            )}
-            {data?.map((u) => {
-              const available = ROLES.filter((r) => !u.roles.includes(r));
+            {auths.isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+            {auths.error && <TableRow><TableCell colSpan={5} className="text-center text-destructive">{(auths.error as Error).message}</TableCell></TableRow>}
+            {auths.data?.map((a) => {
+              const acc = accountByEmail.get(a.email);
+              const isMe = acc?.user_id === me?.id;
               return (
-                <TableRow key={u.id}>
+                <TableRow key={a.id}>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <div className="font-medium">{u.full_name ?? "—"}</div>
-                        {u.id === me?.id && <div className="text-[10px] uppercase text-primary">você</div>}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{u.email ?? "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {u.roles.length === 0 && <span className="text-xs text-muted-foreground">sem papel</span>}
-                      {u.roles.map((r) => (
-                        <Badge key={r} variant={roleVariant(r)} className="gap-1">
-                          {r}
-                          <button
-                            onClick={() => removeRole(u.id, r)}
-                            className="ml-1 opacity-60 hover:opacity-100"
-                            aria-label={`Remover ${r}`}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
+                    <div className="font-medium">{a.full_name ?? "—"} {isMe && <span className="text-[10px] uppercase text-primary">você</span>}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{a.email}</div>
                   </TableCell>
                   <TableCell>
-                    {available.length > 0 ? (
-                      <Select
-                        value={addingFor === u.id ? "" : ""}
-                        onValueChange={(v) => addRole(u.id, v as AppRole)}
-                      >
-                        <SelectTrigger className="h-8">
-                          <SelectValue placeholder="Adicionar…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {available.map((r) => (
-                            <SelectItem key={r} value={r}>{r}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">todos atribuídos</span>
-                    )}
+                    <Select value={a.role} onValueChange={(v) => update(a.id, { role: v as AppRole })}>
+                      <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={a.status === "active" ? "default" : "destructive"}>{a.status === "active" ? "Ativo" : "Bloqueado"}</Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {acc ? `${acc.providers?.join(", ")}${acc.email_confirmed ? "" : " (não confirmado)"}` : "ainda não entrou"}
+                  </TableCell>
+                  <TableCell className="space-x-1 text-right">
+                    <Button size="sm" variant="ghost" onClick={() => update(a.id, { status: a.status === "active" ? "blocked" : "active" })}>
+                      {a.status === "active" ? "Bloquear" : "Reativar"}
+                    </Button>
+                    {acc && <Button size="sm" variant="ghost" onClick={() => sendReset(a.email)}>Enviar link de senha</Button>}
+                    <Button size="sm" variant="ghost" onClick={() => remove(a.id)} aria-label="Remover autorização">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               );
@@ -186,6 +174,27 @@ export default function AdminUsuarios() {
           </TableBody>
         </Table>
       </div>
+
+      {pending.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold">Contas sem autorização (sem acesso a nada)</h3>
+          <div className="rounded-md border border-border">
+            <Table>
+              <TableBody>
+                {pending.map((p) => (
+                  <TableRow key={p.user_id}>
+                    <TableCell className="font-mono text-xs">{p.email}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{p.providers?.join(", ")}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => setForm({ ...form, email: p.email })}>Preencher para autorizar</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

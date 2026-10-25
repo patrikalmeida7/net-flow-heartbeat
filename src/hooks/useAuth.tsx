@@ -1,65 +1,99 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
+import { accessFromRpc, roleAllows, type AppRole, type AccessStatus } from "@/lib/access";
 
-export type AppRole = "admin" | "tecnico" | "visualizador";
+export type { AppRole } from "@/lib/access";
 
 interface AuthContextValue {
   user: User | null;
   session: Session | null;
   roles: AppRole[];
+  role: AppRole | null;
+  access: AccessStatus;
   loading: boolean;
   signOut: () => Promise<void>;
   hasRole: (role: AppRole) => boolean;
   isAdmin: boolean;
+  refreshAccess: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [roles, setRoles] = useState<AppRole[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchRoles = async (uid: string) => {
-    const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid);
-    setRoles((data?.map((r) => r.role) ?? []) as AppRole[]);
-  };
+  const [sessionReady, setSessionReady] = useState(false);
+  const [role, setRole] = useState<AppRole | null>(null);
+  const [access, setAccess] = useState<AccessStatus>("loading");
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    // 1) listener primeiro
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
       setSession(sess);
-      setUser(sess?.user ?? null);
-      if (sess?.user) {
-        // defer pra evitar deadlock
-        setTimeout(() => fetchRoles(sess.user.id), 0);
-      } else {
-        setRoles([]);
-      }
+      setSessionReady(true);
     });
-
-    // 2) sessão atual
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) fetchRoles(session.user.id);
-      setLoading(false);
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setSessionReady(true);
     });
-
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  const uid = session?.user?.id ?? null;
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    if (!uid) {
+      setRole(null);
+      setAccess("signed_out");
+      return;
+    }
+    let cancelled = false;
+    setAccess("loading");
+    supabase.rpc("my_access").then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setRole(null);
+        setAccess("error");
+        return;
+      }
+      const a = accessFromRpc(data);
+      setRole(a.role);
+      setAccess(a.status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, sessionReady, tick]);
+
+  // Re-check periodically so a block applies to open sessions in the UI too (server already enforces it).
+  useEffect(() => {
+    if (!uid) return;
+    const t = setInterval(() => setTick((x) => x + 1), 60_000);
+    return () => clearInterval(t);
+  }, [uid]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
   };
-
-  const hasRole = (role: AppRole) => roles.includes(role);
-  const isAdmin = roles.includes("admin");
+  const hasRole = (r: AppRole) => access === "active" && roleAllows(role, r);
+  const refreshAccess = useCallback(() => setTick((x) => x + 1), []);
 
   return (
-    <AuthContext.Provider value={{ user, session, roles, loading, signOut, hasRole, isAdmin }}>
+    <AuthContext.Provider
+      value={{
+        user: session?.user ?? null,
+        session,
+        role,
+        roles: role ? [role] : [],
+        access,
+        loading: access === "loading",
+        signOut,
+        hasRole,
+        isAdmin: hasRole("admin"),
+        refreshAccess,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

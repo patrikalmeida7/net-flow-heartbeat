@@ -64,6 +64,13 @@
       "when": 1792956715715,
       "tag": "0008_noc_reliability_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792958299858,
+      "tag": "0009_restricted_access_authorizations",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@
 - [x] PPPoE / Histórico / Cliente: paginação no servidor, cliente = concentrador+login
 - [x] WhatsApp: por destinatário, retry limitado, trava, tolerância offline contínua
 - [x] Quedas individuais x em massa coerentes em dashboard, análise e relatórios
+- [x] Acesso restrito: Google ou e-mail/senha só para contas autorizadas pelo admin
 - [ ] Atualizar o container do coletor na VPS (bloqueado: ação do proprietário)
 - [ ] Confirmação de entrega no aparelho (bloqueado: exige webhook da Evolution API)
 - [ ] Quedas falsas antigas: sem critério inequívoco, mantidas (aguarda decisão)
