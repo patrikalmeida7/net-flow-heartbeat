@@ -136,15 +136,17 @@ Deno.serve(async (req) => {
         .match(credFilter);
     }
 
-    // Atualiza status básico do equipamento
+    // Concentrador: status/ultima_coleta pertencem à coleta API RouterOS (agent-ingest).
+    // SNMP só atualiza CPU/memória/uptime, para não esconder um coletor API parado.
     if (concentrador_id) {
-      const patch: Record<string, unknown> = { ultima_coleta: collectedAt };
+      const patch: Record<string, unknown> = {};
       if (typeof dev.cpu_load === "number") patch.cpu_load = Math.round(dev.cpu_load);
       if (typeof dev.memory_used_pct === "number") patch.memory_used_pct = Math.round(dev.memory_used_pct);
       if (typeof dev.uptime_seconds === "number") patch.uptime_seconds = Math.round(dev.uptime_seconds);
-      if (!dev.snmp_error) patch.status = "online";
-      else patch.status = "offline";
-      await supabase.from("concentradores").update(patch).eq("id", concentrador_id);
+      if (Object.keys(patch).length) {
+        const { error: cErr } = await supabase.from("concentradores").update(patch).eq("id", concentrador_id);
+        if (cErr) errors.push(`concentrador: ${cErr.message}`);
+      }
     } else if (rbs_id) {
       const patch: Record<string, unknown> = { ultima_coleta: collectedAt };
       if (typeof dev.ping_ms === "number") patch.ping_ms = Math.round(dev.ping_ms);
@@ -273,11 +275,15 @@ Deno.serve(async (req) => {
     }
   }
 
+  if (errors.length) console.error("metrics-ingest errors:", errors.slice(0, 20));
+  const devicesWithoutData = body.devices.filter((d) => !d.snmp_error && d.cpu_load == null && !d.interfaces?.length).length;
+  if (devicesWithoutData) console.warn(`metrics-ingest: ${devicesWithoutData} device(s) sem nenhuma métrica no payload`);
   return new Response(
     JSON.stringify({
-      ok: true,
+      ok: errors.length === 0,
       samples_inserted: samplesInserted,
       interfaces_upserted: interfacesUpserted,
+      devices_without_data: devicesWithoutData,
       errors,
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 },
