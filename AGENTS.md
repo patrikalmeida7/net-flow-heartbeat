@@ -9,3 +9,4 @@
 - Mass drops are one `device_down` event with `metadata.scope='mass'` + `count`/`usernames`; individual drops are `disconnect`. Reports/alerts must count both but never treat mass drops as client instability.
 - WhatsApp sends go through `deliver()` with per-recipient rows in `notification_deliveries` (retry only pending, max 3) and a `job_locks` lock; pure logic lives in `notify-whatsapp/logic.ts` and is unit-tested from `src/test`.
 - Access is granted only by `access_authorizations` (admin-managed, exact normalized e-mail, active/blocked); `has_role`/`is_authorized` read it live, so blocks hit open sessions and every RLS/RPC/function. `user_roles` is deprecated; never grant roles on signup.
+- Custom dashboards store panel layout in `custom_dashboards` (admin writes, authorized reads); charts read server-bucketed `metric_series` (avg+max per bucket) and `metric_catalog` so panels never pull raw history or trigger collection.
