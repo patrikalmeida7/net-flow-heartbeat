@@ -10,3 +10,6 @@
 - [ ] Atualizar o container do coletor na VPS (bloqueado: ação do proprietário)
 - [ ] Confirmação de entrega no aparelho (bloqueado: exige webhook da Evolution API)
 - [ ] Quedas falsas antigas: sem critério inequívoco, mantidas (aguarda decisão)
+
+- [ ] Dashboards: OID personalizado pelo admin (exige teste controlado no agente) — etapa posterior
+- [ ] Dashboards: contagem de clientes via SNMP só após OID validado

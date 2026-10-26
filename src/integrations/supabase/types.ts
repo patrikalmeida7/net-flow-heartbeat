@@ -406,6 +406,50 @@ export type Database = {
           },
         ]
       }
+      custom_dashboards: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_default: boolean
+          nome: string
+          organization_id: string | null
+          panels: Json
+          settings: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_default?: boolean
+          nome: string
+          organization_id?: string | null
+          panels?: Json
+          settings?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_default?: boolean
+          nome?: string
+          organization_id?: string | null
+          panels?: Json
+          settings?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_dashboards_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_reports: {
         Row: {
           concentrador_id: string | null
@@ -1827,6 +1871,34 @@ export type Database = {
       is_org_member: {
         Args: { _org_id: string; _user_id: string }
         Returns: boolean
+      }
+      metric_catalog: {
+        Args: { _concentrador: string; _rbs: string }
+        Returns: {
+          interface_id: string
+          kind: string
+          last_at: string
+          samples: number
+        }[]
+      }
+      metric_series: {
+        Args: {
+          _concentrador: string
+          _interface: string
+          _kinds: string[]
+          _points?: number
+          _rbs: string
+          _since: string
+          _until?: string
+        }
+        Returns: {
+          avg_value: number
+          bucket_at: string
+          bucket_seconds: number
+          kind: string
+          max_value: number
+          samples: number
+        }[]
       }
       my_access: { Args: never; Returns: Json }
       normalize_email: { Args: { _e: string }; Returns: string }

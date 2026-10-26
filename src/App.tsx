@@ -19,6 +19,7 @@ import ClienteDetalhe from "./pages/ClienteDetalhe";
 import Alertas from "./pages/Alertas";
 import Eventos from "./pages/Eventos";
 import Metricas from "./pages/Metricas";
+import DashboardsPersonalizadas from "./pages/DashboardsPersonalizadas";
 import Analise from "./pages/Analise";
 import Relatorios from "./pages/Relatorios";
 import Admin from "./pages/Admin";
@@ -54,6 +55,7 @@ const App = () => (
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/eventos" element={<Eventos />} />
               <Route path="/metricas" element={<Metricas />} />
+              <Route path="/dashboards" element={<DashboardsPersonalizadas />} />
               <Route path="/analise" element={<Analise />} />
               <Route path="/relatorios" element={<Relatorios />} />
               <Route

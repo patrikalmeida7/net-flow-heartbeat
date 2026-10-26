@@ -12,6 +12,7 @@ const nav = [
   { to: "/pppoe", label: "Usuários PPPoE", icon: Users },
   { to: "/analise", label: "Análise de Clientes", icon: BarChart3 },
   { to: "/metricas", label: "Métricas SNMP", icon: BarChart3 },
+  { to: "/dashboards", label: "Dashboards SNMP", icon: Gauge },
   { to: "/alertas", label: "Alertas", icon: AlertTriangle },
   { to: "/relatorios", label: "Relatórios e Avisos", icon: MessageCircle },
   { to: "/eventos", label: "Histórico", icon: History },
