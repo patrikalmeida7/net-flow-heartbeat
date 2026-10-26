@@ -3,6 +3,7 @@
 - Primary monitoring uses source-specific SNMP state/timestamps through metrics-ingest; agent-ingest stores API photos only and never emits client/status transitions, so sparse snapshots and legacy collectors cannot manufacture outages. API interfaces stay in a separate JSON photo; SNMP counters alone own interface deltas.
 - SNMP persistence uses a service-role-only per-device transaction and timestamp/payload receipt; counter-width changes reset delta baselines, and persistence errors never advance SNMP observation timestamps.
 - API slots are claimed durably per agent in the backend before collection, and connections close after each photo; a restart cannot duplicate an executed slot.
+- Agent image builds must run `npm run check:syntax` over every JavaScript file in `agent/src` before dependency installation; syntax errors must prevent publishing a broken image.
 - SNMP credential secrets are not client-readable; admin saves through save_snmp_credentials and assigns an agent matching the target organization, so SNMP-only devices retain tenant isolation.
 - A PPPoE client is identified by `concentrador_id + username` (routes `/pppoe/c/:concentradorId/:username`); lists/totals come from server RPCs (`pppoe_clients_page`, `eventos_page`, `*_summary`) to avoid the 1000-row cap.
 - Mass drops are one `device_down` event with `metadata.scope='mass'` + `count`/`usernames`; individual drops are `disconnect`. Reports/alerts must count both but never treat mass drops as client instability.

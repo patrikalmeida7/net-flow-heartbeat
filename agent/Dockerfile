@@ -7,6 +7,10 @@ WORKDIR /build
 
 # Só copia manifests primeiro pra cachear deps
 COPY package.json ./
+COPY src ./src
+COPY scripts/check-syntax.sh ./scripts/check-syntax.sh
+# Bloqueia a construção/publicação se qualquer JS do agente tiver sintaxe inválida.
+RUN npm run check:syntax
 # Instala somente prod deps (sem devDependencies, sem audit)
 RUN npm install --omit=dev --no-audit --no-fund
 
