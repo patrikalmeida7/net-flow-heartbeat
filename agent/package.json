@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "check:syntax": "sh scripts/check-syntax.sh",
     "start": "node src/index.js",
     "snmp": "node src/snmp.js",
     "dev": "node --watch src/index.js"

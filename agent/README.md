@@ -10,6 +10,12 @@ Agente coletor que conecta nos seus MikroTiks via **API RouterOS** e envia métr
 
 ## Requisitos
 
+### Verificação de sintaxe da imagem
+
+Na pasta `agent/`, execute `npm run check:syntax` para verificar todos os arquivos JavaScript de `src/`, sem iniciar o agente ou coletar dados. O Dockerfile executa essa mesma verificação com Node 20 antes de continuar a construção; uma falha impede a publicação pelo workflow existente.
+
+O `sed` temporário no Compose só pode ser removido após atualizar para a imagem corrigida e confirmar a coleta na VPS. Esta correção não modifica a VPS nem valida produção.
+
 - Node.js **18.17+** (recomendado 20 LTS)
 - Acesso de rede aos MikroTiks (porta `8728` API ou `8729` API-SSL)
 - Usuário MikroTik com permissão de **leitura** (`group=read` é suficiente)

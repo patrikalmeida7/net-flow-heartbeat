@@ -188,7 +188,7 @@ export async function collectSnmp(target, cfg) {
     }
 
     // Interfaces (em paralelo)
-    const [ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs, in32Rows, out32Rows] =
+    const [ifNames, ifAliases, ifSpeeds, ifOpers, ifAdmins, ifInErr, ifOutErr, ifInOct, ifOutOct, ifDescrs] =
       await Promise.all([
         subtreeAsync(session, OID.ifName).catch(() => []),
         subtreeAsync(session, OID.ifAlias).catch(() => []),
