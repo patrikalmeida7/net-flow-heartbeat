@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-// @ts-expect-error JS module do agente
+// @ts-ignore JS module do agente
 import { createTargetStore } from "../../agent/src/configRetention.js";
 const T = [{ host: "10.0.0.1" }];
 describe("retenção de alvos SNMP", () => {
