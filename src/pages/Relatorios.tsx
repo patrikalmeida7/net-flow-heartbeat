@@ -15,6 +15,7 @@ import { timeAgo } from "@/lib/format";
 import { toast } from "sonner";
 import { WhatsAppConnect } from "@/components/WhatsAppConnect";
 import { ReportBuilder } from "@/components/ReportBuilder";
+import { DailyReportsHistory } from "@/components/DailyReportsHistory";
 
 type Settings = {
   id?: string; enabled: boolean; api_url: string; api_token: string; instance: string; phones: string[];
@@ -163,6 +164,7 @@ export default function Relatorios() {
           <TabsTrigger value="alertas"><Bell className="mr-1 h-4 w-4" />Alertas</TabsTrigger>
           <TabsTrigger value="agenda"><CalendarClock className="mr-1 h-4 w-4" />Agendamento</TabsTrigger>
           {isAdmin && <TabsTrigger value="conexao"><MessageCircle className="mr-1 h-4 w-4" />Conexão e contatos</TabsTrigger>}
+          <TabsTrigger value="diarios"><CalendarClock className="mr-1 h-4 w-4" />Relatórios diários</TabsTrigger>
           <TabsTrigger value="historico"><History className="mr-1 h-4 w-4" />Histórico</TabsTrigger>
         </TabsList>
 
@@ -285,6 +287,7 @@ export default function Relatorios() {
           </TabsContent>
         )}
 
+        <TabsContent value="diarios"><DailyReportsHistory /></TabsContent>
         <TabsContent value="historico">
           <Card className="bg-gradient-card p-5 shadow-card">
             <div className="mb-3 flex gap-2">

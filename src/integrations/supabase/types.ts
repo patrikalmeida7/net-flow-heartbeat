@@ -490,6 +490,53 @@ export type Database = {
           },
         ]
       }
+      daily_reports: {
+        Row: {
+          generated_at: string
+          id: string
+          message_text: string | null
+          organization_id: string | null
+          report_date: string
+          sent_at: string | null
+          status: string
+          summary: Json
+          top_consumers: Json
+          top_drops: Json
+        }
+        Insert: {
+          generated_at?: string
+          id?: string
+          message_text?: string | null
+          organization_id?: string | null
+          report_date: string
+          sent_at?: string | null
+          status?: string
+          summary?: Json
+          top_consumers?: Json
+          top_drops?: Json
+        }
+        Update: {
+          generated_at?: string
+          id?: string
+          message_text?: string | null
+          organization_id?: string | null
+          report_date?: string
+          sent_at?: string | null
+          status?: string
+          summary?: Json
+          top_consumers?: Json
+          top_drops?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_reports_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_credentials: {
         Row: {
           concentrador_id: string | null
@@ -1681,6 +1728,27 @@ export type Database = {
         }[]
       }
       analise_24h: { Args: never; Returns: Json }
+      build_daily_report: {
+        Args: { _date: string }
+        Returns: {
+          generated_at: string
+          id: string
+          message_text: string | null
+          organization_id: string | null
+          report_date: string
+          sent_at: string | null
+          status: string
+          summary: Json
+          top_consumers: Json
+          top_drops: Json
+        }
+        SetofOptions: {
+          from: "*"
+          to: "daily_reports"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       claim_api_collection_slot: { Args: { _agent: string }; Returns: boolean }
       client_drop_stats: {
         Args: { _concentrador: string; _username: string }

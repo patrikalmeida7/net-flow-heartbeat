@@ -8,6 +8,7 @@ import {
   type DeliveryRow, type SendResult,
   recoveryCandidates, healthSummary, fmtBahia, FRESH_MS, type UpEvent, type ConcState,
 } from "./logic.ts";
+import { dailyHistoryText } from "./daily.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const json = (b: unknown, s = 200) =>
@@ -186,7 +187,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "run");
-    if (!["run", "test", "daily", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test", "health_preview", "health_send", "simulate"].includes(action)) return json({ error: "ação inválida" }, 400);
+    if (!["run", "test", "daily", "daily_history_preview", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test", "health_preview", "health_send", "simulate"].includes(action)) return json({ error: "ação inválida" }, 400);
 
     if (action !== "run") {
       const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
@@ -278,6 +279,13 @@ Deno.serve(async (req) => {
       await sb.from("notification_log").insert({ rule_key: "daily", message: "Relatório diário (manual)" });
       return json({ ok: true });
     }
+    if (action === "daily_history_preview") {
+      const d = String(body.date ?? "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: "data inválida" }, 400);
+      const { data: rep, error } = await sb.rpc("build_daily_report", { _date: d });
+      if (error) return json({ error: error.message }, 500);
+      return json({ text: dailyHistoryText(rep, d), report: rep });
+    }
 
     if (!s.enabled) return json({ ok: true, skipped: "desativado" });
 
@@ -336,8 +344,13 @@ Deno.serve(async (req) => {
     // Resumos diários: só marca como enviado quando todos os destinatários foram aceitos
     const dayOk = (s.report_days ?? [0, 1, 2, 3, 4, 5, 6]).includes(nowSp.getDay());
     if (dayOk && s.daily_report_enabled && mins >= s.daily_report_hour * 60 + (s.daily_report_minute ?? 0) && s.last_daily_sent_on !== today) {
-      const o = await deliver(s, "daily", `daily:${today}`, await buildDaily(rules, "Resumo da manhã"), 0);
+      const y = new Date(nowSp); y.setDate(y.getDate() - 1);
+      const ystr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+      const { data: rep } = await sb.rpc("build_daily_report", { _date: ystr });
+      const text = (await buildDaily(rules, "Resumo da manhã")) + (rep ? "\n\n" + dailyHistoryText(rep, ystr) : "");
+      const o = await deliver(s, "daily", `daily:${today}`, text, 0);
       count(o);
+      if (rep?.id) await sb.from("daily_reports").update({ message_text: text, status: o.status === "complete" ? "sent" : "failed", sent_at: o.status === "complete" ? new Date().toISOString() : null }).eq("id", rep.id);
       if (o.status === "complete") await sb.from("notification_settings").update({ last_daily_sent_on: today }).eq("id", s.id);
     }
     if (dayOk && s.evening_report_enabled && h >= (s.evening_report_hour ?? 18) && s.last_evening_sent_on !== today) {
