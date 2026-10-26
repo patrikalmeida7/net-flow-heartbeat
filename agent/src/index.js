@@ -392,13 +392,13 @@ async function tickSnmpInner() {
 }
 
 log("INFO", `🚀 Agente iniciado. ${concentradores.length} concentrador(es), ${rbs.length} RBS.`);
-log("INFO", "→ API 00/06/12/18 America/Bahia (sem catch-up); SNMP principal 30s");
+log("INFO", `→ Revisão ${REVISION} · SNMP exclusivo 30s · API RouterOS automática DESATIVADA`);
 log("INFO", `→ Ingest URL: ${ingest_url}`);
 if (metrics_ingest_url) log("INFO", `→ Metrics URL: ${metrics_ingest_url}`);
 
 await refreshDynamicDevices();
 setInterval(refreshDynamicDevices, 60_000);
-if (MK_CONFIG_URL) log("INFO", `→ MikroTiks dinâmicos do painel: ${concentradores.length} total`);
+if (MK_CONFIG_URL) log("INFO", `→ Alvos SNMP do painel: ${snmpTargets.length}`);
 // No API collection at startup. Slots are claimed durably in the backend.
 await tickSnmp();
 async function scheduledApi() {
@@ -411,7 +411,7 @@ async function scheduledApi() {
     if ((await r.json()).claimed) await tickRouterOs();
   } catch (e) { log("ERROR", "API slot:", e.message); }
 }
-setInterval(scheduledApi, 15000);
+// API RouterOS automática desativada: scheduledApi/tickRouterOs ficam apenas para uso futuro sob demanda.
 setInterval(tickSnmp, 30000);
 
 // VPN loop (opcional — só sobe se as variáveis de ambiente estiverem definidas)
