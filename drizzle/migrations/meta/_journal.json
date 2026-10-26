@@ -113,6 +113,13 @@
       "when": 1792967432441,
       "tag": "0015_snmp_batch_enum_assignment",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793057925223,
+      "tag": "0016_daily_reports_history",
+      "breakpoints": true
     }
   ]
 }
