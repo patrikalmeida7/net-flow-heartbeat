@@ -49,6 +49,8 @@ jobs:
           file: ./agent/Dockerfile
           platforms: linux/amd64
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           # Cache GitHub-hosted (não precisa de registry extra)
           cache-from: type=gha

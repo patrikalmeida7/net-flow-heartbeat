@@ -78,7 +78,7 @@ export default function PPPoE() {
         <h1 className="text-2xl font-semibold tracking-tight">Usuários PPPoE</h1>
         <p className="text-sm text-muted-foreground">
           {s
-            ? `${s.clients.toLocaleString("pt-BR")} clientes únicos · ${s.session_records.toLocaleString("pt-BR")} registros de sessão no histórico · ${s.snapshot_online ?? "Sem dados"} presentes nas fotografias API · última sincronização ${timeAgo(s.last_sync)} · 00/06/12/18 America/Bahia`
+            ? `${s.clients.toLocaleString("pt-BR")} clientes únicos · ${s.session_records.toLocaleString("pt-BR")} registros de sessão no histórico · ${s.snapshot_online ?? "Sem dados"} presentes no último registro via API (${s.last_sync ? new Date(s.last_sync).toLocaleString("pt-BR") : "sem data"}) · não são conexões atuais confirmadas`
             : summary.isError ? "Não foi possível carregar os totais." : "Carregando totais…"}
         </p>
       </div>

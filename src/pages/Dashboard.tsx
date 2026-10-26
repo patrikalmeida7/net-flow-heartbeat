@@ -82,17 +82,17 @@ export default function Dashboard() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard NOC</h1>
-        <p className="text-sm text-muted-foreground">SNMP principal · PPPoE: fotografias API 00/06/12/18 America/Bahia</p>
+        <p className="text-sm text-muted-foreground">SNMP exclusivo · PPPoE: último registro via API (coleta automática desativada)</p>
       </div>
 
       {/* Métricas principais */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="PPPoE na última fotografia"
+          label="PPPoE · último registro via API"
           value={data ? totalOnline?.toLocaleString("pt-BR") ?? "Sem dados" : "—"}
           tone={(data?.summary?.online_stale ?? 0) > 0 ? "warning" : "online"}
           icon={<Users className="h-5 w-5" />}
-          hint={`API · última sincronização ${timeAgo(data?.summary?.last_session_update ?? null)} · tempo real indisponível`}
+          hint={`último registro via API ${timeAgo(data?.summary?.last_session_update ?? null)} · tempo real indisponível`}
         />
         <MetricCard
           label="Concentradores"

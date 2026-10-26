@@ -47,7 +47,11 @@ COPY scripts ./scripts
 # A mitigação é o container ter --cap-add=NET_ADMIN
 # em vez de --privileged (definido no docker-compose).
 
+ARG GIT_SHA=unknown
+# Revisão Git real do build: consultar com `cat /app/REVISION` dentro do container.
+RUN echo "$GIT_SHA" > /app/REVISION
 ENV NODE_ENV=production \
+    AGENT_REVISION=$GIT_SHA \
     AGENT_CONFIG=/app/config/config.json
 
 # Healthcheck: o próprio script verifica se o loop de heartbeat
