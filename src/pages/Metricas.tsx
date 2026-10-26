@@ -43,6 +43,7 @@ async function fetchInterfaces() {
   return {
     ifaces: (ifaces.data ?? []) as Iface[],
     concById: new Map((concs.data ?? []).map((c) => [c.id, c.nome as string])),
+    rbsError: rbs.error ? String(rbs.error.message) : null,
     rbsById: new Map((rbs.data ?? []).map((r) => [r.id, r.nome as string])),
   };
 }
@@ -181,13 +182,18 @@ export default function Metricas() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Métricas SNMP</h1>
         <p className="text-sm text-muted-foreground">
-          Tráfego, CPU e memória em tempo real. Atualização automática via WebSocket.
+          Tráfego, CPU e memória via SNMP. Valores atrasados aparecem como último valor conhecido, com horário.
         </p>
       </div>
 
       {ifq.isError && (
         <Card className="p-4 text-sm">
           Erro ao carregar interfaces. <button className="text-primary underline" onClick={() => ifq.refetch()}>Tentar novamente</button>
+        </Card>
+      )}
+      {data?.rbsError && (
+        <Card className="p-4 text-sm">
+          Erro ao carregar RBS; nomes podem faltar. <button className="text-primary underline" onClick={() => ifq.refetch()}>Tentar novamente</button>
         </Card>
       )}
       {!ifq.isError && !ifq.isLoading && ifaces.length === 0 && (
@@ -242,14 +248,14 @@ export default function Metricas() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-gradient-card p-4 shadow-card">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-            <TrendingDown className="h-3.5 w-3.5" /> Download atual
+            <TrendingDown className="h-3.5 w-3.5" /> Entrada (RX) {fresh === "Coleta em dia" ? "atual" : "· último valor conhecido"}
           </div>
           <div className="mt-2 font-mono text-2xl font-semibold">{showBps(last?.in_bps)}</div>
           <div className="text-xs text-muted-foreground">Pico (30min): {showBps(peakIn)}</div>
         </Card>
         <Card className="bg-gradient-card p-4 shadow-card">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-            <TrendingUp className="h-3.5 w-3.5" /> Upload atual
+            <TrendingUp className="h-3.5 w-3.5" /> Saída (TX) {fresh === "Coleta em dia" ? "atual" : "· último valor conhecido"}
           </div>
           <div className="mt-2 font-mono text-2xl font-semibold">{showBps(last?.out_bps)}</div>
           <div className="text-xs text-muted-foreground">Pico (30min): {showBps(peakOut)}</div>
@@ -279,7 +285,7 @@ export default function Metricas() {
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
               Tráfego — últimos 30 minutos
             </h2>
-            <p className="text-xs text-muted-foreground">In/Out em bits/s · atualização a cada 5s</p>
+            <p className="text-xs text-muted-foreground">Entrada (RX) / Saída (TX) em bits/s · atualização a cada 5s</p>
           </div>
           <Activity className="h-4 w-4 text-primary" />
         </div>
@@ -323,7 +329,7 @@ export default function Metricas() {
                     borderRadius: 8,
                     fontSize: 12,
                   }}
-                  formatter={(v: number, name: string) => [formatBps(v), name === "in_bps" ? "Download" : "Upload"]}
+                  formatter={(v: number, name: string) => [formatBps(v), name === "in_bps" ? "Entrada (RX)" : "Saída (TX)"]}
                 />
                 <Area type="monotone" dataKey="in_bps" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#gIn)" />
                 <Area type="monotone" dataKey="out_bps" stroke="hsl(var(--status-online))" strokeWidth={2} fill="url(#gOut)" />

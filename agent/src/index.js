@@ -11,6 +11,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RouterOSAPI } from "node-routeros";
 import { collectSnmp } from "./snmp.js";
+import { createTargetStore } from "./configRetention.js";
+const REVISION = process.env.AGENT_REVISION || (() => { try { return fs.readFileSync("/app/REVISION", "utf8").trim(); } catch { return "unknown"; } })();
 import { startVpnLoop } from "./vpn.js";
 import { startClientsLoop } from "./clients.js";
 
@@ -71,25 +73,25 @@ if (concentradores.length === 0 && !MK_CONFIG_URL) {
   process.exit(1);
 }
 
+// Somente configuração SNMP: o painel não descriptografa credenciais RouterOS para este GET.
+const targetStore = createTargetStore(Math.min(30 * 60_000, Math.max(60_000, Number(process.env.SNMP_CONFIG_TTL_MS) || 10 * 60_000)));
 async function refreshDynamicDevices() {
   if (!MK_CONFIG_URL || !MK_TOKEN) return;
+  let status = null;
   try {
-    const res = await fetch(MK_CONFIG_URL, { headers: { Authorization: `Bearer ${MK_TOKEN}` }, signal: AbortSignal.timeout(request_timeout_ms) });
+    const u = new URL(MK_CONFIG_URL); u.searchParams.set("scope", "snmp");
+    const res = await fetch(u, { headers: { Authorization: `Bearer ${MK_TOKEN}` }, signal: AbortSignal.timeout(request_timeout_ms) });
+    status = res.status;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { devices = [], snmp_targets = [] } = await res.json();
-    snmpTargets = snmp_targets;
-    const dyn = devices.map((d) => ({
-      id: d.id, concentrador_id: d.concentrador_id, nome: d.nome, host: d.host, port: d.port, tls: d.tls,
-      user: d.user, password: d.password, version: d.version, dynamic: true,
-      snmp: d.snmp || undefined,
-    }));
-    const dynHosts = new Set(dyn.map((d) => d.host));
-    concentradores = [...staticConcentradores.filter((c) => !dynHosts.has(c.host)), ...dyn];
+    const body = await res.json();
+    if (!Array.isArray(body?.snmp_targets)) throw new Error("resposta sem snmp_targets");
+    targetStore.applySuccess(body.snmp_targets);
   } catch (e) {
-    snmpTargets = [];
-    concentradores = [];
-    console.log(`[${new Date().toISOString()}] [WARN] Falha ao buscar MikroTiks do painel: ${e.message}`);
+    const r = targetStore.applyFailure(status);
+    const msg = { revoked: "acesso revogado (401/403) — alvos SNMP invalidados", expired: "configuração desatualizada — retenção expirou, coleta SNMP interrompida", retained: "mantendo últimos alvos SNMP temporariamente", none: "sem alvos válidos" }[r];
+    console.log(`[${new Date().toISOString()}] [WARN] Falha ao buscar configuração do painel: ${e.message} · ${msg}`);
   }
+  snmpTargets = targetStore.current();
 }
 
 async function reportDynamic(results) {
@@ -390,13 +392,13 @@ async function tickSnmpInner() {
 }
 
 log("INFO", `🚀 Agente iniciado. ${concentradores.length} concentrador(es), ${rbs.length} RBS.`);
-log("INFO", "→ API 00/06/12/18 America/Bahia (sem catch-up); SNMP principal 30s");
+log("INFO", `→ Revisão ${REVISION} · SNMP exclusivo 30s · API RouterOS automática DESATIVADA`);
 log("INFO", `→ Ingest URL: ${ingest_url}`);
 if (metrics_ingest_url) log("INFO", `→ Metrics URL: ${metrics_ingest_url}`);
 
 await refreshDynamicDevices();
 setInterval(refreshDynamicDevices, 60_000);
-if (MK_CONFIG_URL) log("INFO", `→ MikroTiks dinâmicos do painel: ${concentradores.length} total`);
+if (MK_CONFIG_URL) log("INFO", `→ Alvos SNMP do painel: ${snmpTargets.length}`);
 // No API collection at startup. Slots are claimed durably in the backend.
 await tickSnmp();
 async function scheduledApi() {
@@ -409,7 +411,7 @@ async function scheduledApi() {
     if ((await r.json()).claimed) await tickRouterOs();
   } catch (e) { log("ERROR", "API slot:", e.message); }
 }
-setInterval(scheduledApi, 15000);
+// API RouterOS automática desativada: scheduledApi/tickRouterOs ficam apenas para uso futuro sob demanda.
 setInterval(tickSnmp, 30000);
 
 // VPN loop (opcional — só sobe se as variáveis de ambiente estiverem definidas)

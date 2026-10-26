@@ -25,7 +25,9 @@ Deno.serve(async (req) => {
     if (!agent || !agent.enabled) return json({ error: "invalid or disabled agent" }, 401);
 
     if (req.method === "GET") {
-      const { data, error } = await sb.from("mikrotik_api_credentials")
+      // scope=snmp: monitoramento SNMP sem ler/descriptografar credenciais RouterOS
+      const snmpOnly = new URL(req.url).searchParams.get("scope") === "snmp";
+      const { data, error } = snmpOnly ? { data: [], error: null } : await sb.from("mikrotik_api_credentials")
         .select("id, host, port, use_tls, username, routeros_version, concentrador_id, organization_id, concentradores(nome)")
         .eq("agent_id", agent.id).eq("enabled", true);
       if (error) throw error;

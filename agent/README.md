@@ -204,3 +204,6 @@ O agente precisa rodar **como root** (ou com `CAP_NET_ADMIN`) para gerenciar int
 - Token do agente é guardado como **sha256 hash** — não há recuperação
 - Edge function só descriptografa quando o agente apresenta o bearer correto
 - Prefixo `lov-` evita conflito com configs WG/OVPN manuais existentes
+
+## Confirmar a revisão instalada
+Dentro do container (terminal do ICP): `cat /app/REVISION` — ou veja a linha `→ Revisão <sha>` no início do log. Deve bater com o commit publicado pelo workflow. Remova o `sed` temporário do Compose só depois que a revisão instalada for igual ou posterior à correção e o log mostrar `SNMP ✓`.
