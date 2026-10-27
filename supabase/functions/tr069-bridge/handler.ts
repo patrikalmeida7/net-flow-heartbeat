@@ -153,7 +153,7 @@ export function createHandler(deps: Deps) {
       const base = String(srv.nbi_url).replace(/\/+$/, "");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (srv.username) headers.Authorization = "Basic " + btoa(`${srv.username}:${pwd ?? ""}`);
-      const nbi = (path: string, init: RequestInit = {}) => deps.fetch(base + path, { ...init, headers, signal: AbortSignal.timeout(15000) });
+      const nbi = (path: string, init: RequestInit = {}) => deps.fetch(base + path, { ...init, headers, signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(15000) : undefined });
 
       const { data: profs } = await admin.from("tr069_profiles").select("*").eq("organization_id", org);
       const profiles = (profs ?? []) as Profile[];
