@@ -126,22 +126,43 @@ Deno.serve(async (req) => {
     const incoming = new Map(body.sessions.filter((s)=>s.online).map((s)=>[s.username,s]));
     const known = new Map((current ?? []).map((s)=>[s.username,s.id]));
     const writeErrors: string[]=[];
-    // Missing clients were absent in this photo; their disconnect time/count is UNKNOWN.
-    const absent=(current ?? []).filter((s)=>!incoming.has(s.username)).map((s)=>s.id);
+    // Realtime: persistent API session polled every minute, so absences are real drops.
+    // Snapshot (legacy 6h): absence time/count unknown, never emit events.
+    const realtime = body.source === "routeros_realtime";
+    const absentRows=(current ?? []).filter((s)=>!incoming.has(s.username));
+    // Empty list while many were online = suspicious read; never manufacture a mass outage.
+    if (realtime && incoming.size===0 && current.length>=20) return json({ok:true,suspect_empty:true,events:0,synced:0});
+    const absent=absentRows.map((s)=>s.id);
+    let events=0;
     if(absent.length) {
-      const {error}=await supabase.from("pppoe_sessions").update({online:false,desconectado_em:null,ultima_atualizacao:now}).in("id",absent);
+      const {error}=await supabase.from("pppoe_sessions").update({online:false,desconectado_em:realtime?now:null,ultima_atualizacao:now}).in("id",absent);
       if(error) writeErrors.push(error.message);
+      if (realtime) {
+        const usernames=absentRows.map((s)=>s.username);
+        const mass = usernames.length>=10 && usernames.length>=current.length*0.3;
+        const rows = mass
+          ? [{tipo:"device_down",concentrador_id:concentradorId,descricao:`Queda em massa: ${usernames.length} clientes`,metadata:{scope:"mass",source:"routeros_realtime",count:usernames.length,usernames:usernames.slice(0,500)}}]
+          : usernames.map((username)=>({tipo:"disconnect",concentrador_id:concentradorId,username,descricao:"Cliente desconectou",metadata:{source:"routeros_realtime"}}));
+        const {error:evErr}=await supabase.from("eventos").insert(rows);
+        if(evErr) writeErrors.push(evErr.message); else events+=rows.length;
+      }
+    }
+    const newcomers=[...incoming.keys()].filter((u)=>!known.has(u));
+    if (realtime && newcomers.length && current.length>0 && newcomers.length<200) {
+      const {error}=await supabase.from("eventos").insert(newcomers.map((username)=>({tipo:"connect",concentrador_id:concentradorId,username,descricao:"Cliente conectou",metadata:{source:"routeros_realtime"}})));
+      if(error) writeErrors.push(error.message); else events+=newcomers.length;
     }
     for(const [username,session] of incoming) {
       const row={concentrador_id:concentradorId,username,ip_address:session.ip_address ?? null,caller_id:session.caller_id ?? null,interface:session.interface ?? null,uptime_seconds:session.uptime_seconds ?? null,bytes_in:session.bytes_in ?? null,bytes_out:session.bytes_out ?? null,online:true,ultima_atualizacao:now};
       const id=known.get(username);
-      const {error}=id ? await supabase.from("pppoe_sessions").update(row).eq("id",id) : await supabase.from("pppoe_sessions").insert(row);
+      const {error}=id ? await supabase.from("pppoe_sessions").update(row).eq("id",id) : await supabase.from("pppoe_sessions").insert({...row,conectado_em:now});
       if(error) writeErrors.push(error.message);
     }
-    const {error:snapshotErr}=await supabase.from("connection_snapshots").upsert({concentrador_id:concentradorId,organization_id:target.organization_id,bucket_at:now,online_count:incoming.size},{onConflict:"concentrador_id,bucket_at"});
+    const bucket = new Date(Math.floor(Date.now()/300000)*300000).toISOString();
+    const {error:snapshotErr}=await supabase.from("connection_snapshots").upsert({concentrador_id:concentradorId,organization_id:target.organization_id,bucket_at:realtime?bucket:now,online_count:incoming.size},{onConflict:"concentrador_id,bucket_at"});
     if(snapshotErr) writeErrors.push(snapshotErr.message);
-    if(writeErrors.length) console.error("API snapshot write errors",writeErrors);
-    return json({ok:!writeErrors.length,events:0,synced:incoming.size,write_errors:writeErrors});
+    if(writeErrors.length) console.error("API write errors",writeErrors);
+    return json({ok:!writeErrors.length,events,new_connections:newcomers.length,disconnections:absent.length,synced:incoming.size,write_errors:writeErrors});
   } catch (err) {
     console.error("agent-ingest error:", err);
     const msg = err instanceof Error ? err.message : String(err);
