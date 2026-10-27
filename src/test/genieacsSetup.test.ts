@@ -129,16 +129,10 @@ describe("instalador GenieACS: segredos", () => {
   });
   it("open-cwmp com falha na re-verificação volta para 127.0.0.1", () => {
     const r1 = run();
-    let n = 0; void n;
-    // Primeira verificação passa; a segunda (após publicar) recebe 403 via estado em arquivo.
     const flag = path.join(r1.dir, "opened");
     const curl = path.join(r1.dir, "bin", "curl");
-    const orig = readFileSync(curl, "utf8");
-    writeFileSync(curl, orig.replace('who=none\n', `who=none\nif grep -q '^CWMP_BIND=0.0.0.0' "${r1.work}/.env"; then touch "${flag}"; echo -n 403; exit 0; fi\n`));
-    const r = run({ cmd: "open-cwmp", work: r1.work, dir: r1.dir, env: { CONFIRM_OPEN: "yes" } });
-    // run() rewrites stubs; reapply and execute directly
-    writeFileSync(curl, orig.replace('who=none\n', `who=none\nif grep -q '^CWMP_BIND=0.0.0.0' "${r1.work}/.env"; then touch "${flag}"; echo -n 403; exit 0; fi\n`));
-    void r;
+    // Após publicar (CWMP_BIND=0.0.0.0) o ACS simulado passa a responder 403.
+    writeFileSync(curl, readFileSync(curl, "utf8").replace('who=none\n', `who=none\nif grep -q '^CWMP_BIND=0.0.0.0' "${r1.work}/.env"; then touch "${flag}"; echo -n 403; exit 0; fi\n`));
     let res: { code: number; out: string };
     try { res = { code: 0, out: execFileSync("/bin/bash", [path.join(r1.work, "setup.sh"), "open-cwmp"], { env: { PATH: `${path.join(r1.dir, "bin")}:/usr/bin:/bin`, CONFIRM_OPEN: "yes" }, encoding: "utf8", stdio: "pipe" }) }; }
     catch (e: any) { res = { code: e.status, out: String(e.stdout) + String(e.stderr) }; }
