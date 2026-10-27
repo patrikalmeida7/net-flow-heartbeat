@@ -301,10 +301,40 @@ export function createHandler(deps: Deps) {
         return json({ ok: status !== "failed", status, message: err ?? confirmation });
       }
 
-      // task_status: reconcile using the task's frozen snapshot, never the current profile.
-      const { data: pend } = await admin.from("tr069_tasks").select("id,genie_task_id,task_type,payload,profile_snapshot,requested_at,status")
-        .eq("device_id", device.id).eq("organization_id", org).in("status", ["queued", "unknown"]);
+      // task_status: reconcile using the task's frozen snapshot, never the current profile. Never resends the original command.
+      const safeRead = async (paths: string[]) => { try { return await readDevice(paths); } catch { return null; } };
+      // deno-lint-ignore no-explicit-any
+      const checkUnconfirmed = async (t: any) => {
+        const kind = verifiable(t);
+        if (!kind) return; // write-only password: stays unconfirmed, no further reads
+        const snap = t.profile_snapshot as Snapshot;
+        // deno-lint-ignore no-explicit-any
+        const p = (t.payload ?? {}) as any;
+        const evaluate = (d: unknown) => {
+          if (kind === "reboot") return d && rebootConfirmed((d as { _lastBoot?: unknown })._lastBoot, t.requested_at)
+            ? { status: "completed" as const, confirmation: "Reinício confirmado por novo boot posterior à solicitação", observed_at: String((d as { _lastBoot: string })._lastBoot) } : null;
+          const r = confirmWifi(p.ssid, d ? param(d, snap.ssid_path) : null, t.requested_at, !!p.password_changed);
+          return r.observed_at && Date.parse(r.observed_at) > Date.parse(t.requested_at) && r.confirmation.startsWith("SSID confirmado") ? r : null;
+        };
+        const save = (r: { status: string; confirmation: string; observed_at: string | null }) =>
+          admin.from("tr069_tasks").update({ ...r, error: null, completed_at: r.status === "completed" ? iso() : null }).eq("id", t.id);
+        // 1) Passive read of what the ACS already holds (no CPE task).
+        const ok1 = evaluate(await safeRead(kind === "ssid" ? [snap.ssid_path!] : []));
+        if (ok1) { await save(ok1); return; }
+        // 2) Reboot is never "read" from the CPE; SSID gets a bounded, tracked read request.
+        if (kind === "reboot" || readPlan(t, now()) !== "request") return;
+        const attempts = (t.read_attempts ?? 0) + 1;
+        const { error: tErr } = await admin.from("tr069_tasks").update({ read_attempts: attempts, last_read_requested_at: iso() }).eq("id", t.id).eq("read_attempts", t.read_attempts ?? 0);
+        if (tErr) return; // could not record the request: do not send it
+        if (!(await requestRead(snap.ssid_path!))) return;
+        const ok2 = evaluate(await safeRead([snap.ssid_path!]));
+        if (ok2) await save(ok2);
+      };
+      const { data: pend, error: pErr } = await admin.from("tr069_tasks").select("id,genie_task_id,task_type,payload,profile_snapshot,requested_at,status,confirmation,read_attempts,last_read_requested_at")
+        .eq("device_id", device.id).eq("organization_id", org).in("status", ["queued", "unknown", "unconfirmed"]);
+      if (pErr) return json({ ok: false, error: "Não foi possível consultar as tarefas" }, 500);
       for (const t of pend ?? []) {
+        if (t.status === "unconfirmed") { await checkUnconfirmed(t); continue; }
         let tasksOk = false, stillQueued = false;
         try {
           const tq = t.genie_task_id ? { _id: t.genie_task_id } : { device: gid };
@@ -323,15 +353,12 @@ export function createHandler(deps: Deps) {
         const step = reconcileStep({ tasksOk, stillQueued, faultsOk, faultCount });
         if (step === "keep") continue;
         if (step === "failed") { await admin.from("tr069_tasks").update({ status: "failed", error: safeError(JSON.stringify(faultCode ?? "fault")) }).eq("id", t.id); continue; }
-        const snap = t.profile_snapshot as Snapshot | null;
         // deno-lint-ignore no-explicit-any
-        const p = t.payload as any;
-        let r2 = { status: "unconfirmed" as const, confirmation: "ACS aplicou; sem leitura de confirmação", observed_at: null as string | null } as ReturnType<typeof confirmWifi>;
-        if (t.task_type === "set_wifi" && snap?.ssid_path && p.ssid) {
-          const d = (await requestRead(snap.ssid_path)) ? await readDevice([snap.ssid_path]) : null;
-          r2 = confirmWifi(p.ssid, d ? param(d, snap.ssid_path) : null, t.requested_at, !!p.password_changed);
-        } else if (t.task_type === "set_wifi") r2 = confirmWifi(null, null, t.requested_at, !!p.password_changed);
-        await admin.from("tr069_tasks").update({ ...r2, error: null, completed_at: r2.status === "completed" ? iso() : null }).eq("id", t.id);
+        const p = (t.payload ?? {}) as any;
+        const base = t.task_type === "set_wifi" ? confirmWifi(p.ssid ?? null, null, t.requested_at, !!p.password_changed)
+          : { status: "unconfirmed" as const, confirmation: "ACS aplicou; reinício confirmado só com novo boot posterior", observed_at: null };
+        const { error: uErr } = await admin.from("tr069_tasks").update({ ...base, error: null, completed_at: null }).eq("id", t.id);
+        if (!uErr) await checkUnconfirmed({ ...t, ...base, status: "unconfirmed" });
       }
       return json({ ok: true });
     } catch (e) {
