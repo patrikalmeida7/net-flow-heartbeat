@@ -114,7 +114,9 @@ export function createHandler(deps: Deps) {
         const ciphertext = await encryptSecret(b.password, deps.secretKey, srv.id);
         const { error } = await admin.from("acs_server_secrets").upsert({ server_id: srv.id, ciphertext, key_version: 1, updated_at: iso() }, { onConflict: "server_id" });
         if (error) return json({ error: "Não foi possível salvar a senha" }, 500);
-        await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", srv.id);
+        // New store wins over the legacy column; a failed clear is retried on the next request.
+        const { error: clr } = await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", srv.id);
+        if (clr) console.error("tr069-bridge: limpeza da senha antiga pendente");
         await audit("set_password", "ok");
         return json({ ok: true });
       }
@@ -138,18 +140,10 @@ export function createHandler(deps: Deps) {
       const urlOk = nbiUrlAllowed(String(srv.nbi_url), !!srv.allow_insecure_http);
       if (!urlOk.ok) return json({ error: (urlOk as { reason: string }).reason }, 400);
 
-      // Credentials: new store, with one-time lazy migration from the deprecated column.
-      let pwd: string | null = null;
-      const { data: sec } = await admin.from("acs_server_secrets").select("ciphertext").eq("server_id", srv.id).maybeSingle();
-      if (sec?.ciphertext) pwd = await decryptSecret(sec.ciphertext, deps.secretKey, srv.id);
-      else {
-        const { data: legacy } = await admin.rpc("get_acs_password", { _id: srv.id });
-        if (legacy) {
-          pwd = legacy;
-          await admin.from("acs_server_secrets").upsert({ server_id: srv.id, ciphertext: await encryptSecret(legacy, deps.secretKey, srv.id), updated_at: iso() }, { onConflict: "server_id" });
-          await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", srv.id);
-        }
-      }
+      // Credentials: new store, with resumable lazy migration from the deprecated column.
+      const cred = await loadPassword(admin, deps.secretKey, srv.id, iso);
+      if (!cred.ok) return json({ error: "Credencial do ACS indisponível" }, 500);
+      const pwd = cred.pwd;
       const base = String(srv.nbi_url).replace(/\/+$/, "");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (srv.username) headers.Authorization = "Basic " + btoa(`${srv.username}:${pwd ?? ""}`);
