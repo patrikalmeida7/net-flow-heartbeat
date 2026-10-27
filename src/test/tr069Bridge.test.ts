@@ -11,13 +11,13 @@ const DEV_A = "30000000-0000-4000-8000-000000000001", DEV_B = "30000000-0000-400
 const PROF = "40000000-0000-4000-8000-000000000001";
 const rid = (n: number) => `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-let db: Record<string, Row[]>; let seq = 0;
+let db: Record<string, Row[]>; let seq = 0; let failOn = new Set<string>(); let onOp: ((k: string) => void) | null = null;
 function fakeDb(scopeOrgs: string[] | null) {
   return {
     rpc: async (fn: string, a: Row) => {
       if (fn === "is_authorized") return { data: a._user_id !== "blocked" };
       if (fn === "has_role") return { data: a._user_id !== U_V };
-      if (fn === "get_acs_password") return { data: null };
+      if (fn === "get_acs_password") { if (failOn.has("rpc:get_acs_password")) return { data: null, error: { message: "x" } }; return { data: db.acs_servers.find((r) => r.id === a._id)?.password_encrypted ?? null, error: null }; }
       return { data: null };
     },
     from(t: string) {
@@ -30,6 +30,8 @@ function fakeDb(scopeOrgs: string[] | null) {
         if (["requested", "queued", "unknown"].includes(r.status) && db[t].some((x) => x.device_id === r.device_id && x.task_type === r.task_type && ["requested", "queued", "unknown"].includes(x.status))) throw { code: "23505" };
       };
       const exec = () => {
+        onOp?.(`${t}:${st.op}`);
+        if (failOn.has(`${t}:${st.op}`)) return { data: null, error: { message: "db fail" } };
         try {
           if (st.op === "select") return { data: visible().filter(match), error: null };
           if (st.op === "insert") { const rows = [].concat(st.payload).map((r: Row) => ({ id: `gen-${++seq}`, ...r })); rows.forEach((r) => { uniq(r); db[t].push(r); }); return { data: rows, error: null }; }
@@ -38,7 +40,7 @@ function fakeDb(scopeOrgs: string[] | null) {
             const keys = (st.opts?.onConflict ?? "id").split(",");
             for (const r of [].concat(st.payload) as Row[]) {
               const ex = db[t].find((x) => keys.every((k: string) => x[k] === r[k]));
-              if (ex) Object.assign(ex, r); else db[t].push({ id: `gen-${++seq}`, authorized: false, ...r });
+              if (ex) { if (!st.opts?.ignoreDuplicates) Object.assign(ex, r); } else db[t].push({ id: `gen-${++seq}`, authorized: false, ...r });
             }
             return { data: null, error: null };
           }
@@ -76,7 +78,7 @@ const J = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s }
 const T0 = Date.parse("2026-10-27T12:00:00Z");
 
 beforeEach(() => {
-  seq = 0; calls = []; clock = T0; acs = () => J([]);
+  seq = 0; calls = []; clock = T0; acs = () => J([]); failOn = new Set(); onOp = null;
   db = {
     organization_members: [{ user_id: U_A, organization_id: ORG_A }, { user_id: U_V, organization_id: ORG_A }, { user_id: U_B, organization_id: ORG_B }],
     acs_servers: [
