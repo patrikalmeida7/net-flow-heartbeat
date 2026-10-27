@@ -14,4 +14,4 @@
 - [ ] Dashboards: OID personalizado pelo admin (exige teste controlado no agente) — etapa posterior
 - [ ] Dashboards: contagem de clientes via SNMP só após OID validado
 
-- [ ] Analisar desempenho do banco (CPU/memória/disco) e sugerir otimizações antes de redimensionar
+- [x] Analisar desempenho do banco (CPU/memória/disco) e sugerir otimizações antes de redimensionar
