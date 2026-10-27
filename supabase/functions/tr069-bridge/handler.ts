@@ -69,6 +69,42 @@ export function mapDevice(d: any, profiles: Profile[], ctx: { organization_id: s
   return { ...base, ...w, params: { data_model: tr181 ? "tr181" : "tr098", tags: d._tags ?? [], wifi_source } };
 }
 
+/**
+ * Reads the ACS password. Legacy column is migrated without ever overwriting a newer password
+ * (insert-if-absent), verified by re-reading and decrypting, and cleared only after that check.
+ * Any failure keeps the legacy value in place, so the next request resumes idempotently. Values are never logged.
+ */
+export async function loadPassword(admin: Db, key: string, serverId: string, iso: () => string): Promise<{ ok: true; pwd: string | null } | { ok: false }> {
+  const readStored = async () => {
+    const { data, error } = await admin.from("acs_server_secrets").select("ciphertext").eq("server_id", serverId).maybeSingle();
+    if (error) return { error: true as const };
+    if (!data?.ciphertext) return { pwd: null };
+    try { return { pwd: await decryptSecret(data.ciphertext, key, serverId) }; } catch { return { error: true as const }; }
+  };
+  const clearLegacy = async () => {
+    const { error } = await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", serverId);
+    if (error) console.error("tr069-bridge: limpeza da senha antiga pendente");
+  };
+  const stored = await readStored();
+  if ("error" in stored) return { ok: false };
+  const { data: legacy, error: lErr } = await admin.rpc("get_acs_password", { _id: serverId });
+  if (stored.pwd != null) {
+    if (!lErr && legacy) await clearLegacy(); // resume an interrupted migration
+    return { ok: true, pwd: stored.pwd };
+  }
+  if (lErr) return { ok: false };
+  if (!legacy) return { ok: true, pwd: null };
+  let ciphertext: string;
+  try { ciphertext = await encryptSecret(legacy, key, serverId); } catch { return { ok: true, pwd: legacy }; }
+  const { error: wErr } = await admin.from("acs_server_secrets")
+    .upsert({ server_id: serverId, ciphertext, key_version: 1, updated_at: iso() }, { onConflict: "server_id", ignoreDuplicates: true });
+  if (wErr) { console.error("tr069-bridge: migração da senha do ACS falhou; senha antiga preservada"); return { ok: true, pwd: legacy }; }
+  const after = await readStored();
+  if ("error" in after || after.pwd == null) return { ok: true, pwd: legacy }; // not confirmed: keep legacy
+  await clearLegacy();
+  return { ok: true, pwd: after.pwd }; // a concurrent set_password may have won: use the stored (newer) value
+}
+
 export function createHandler(deps: Deps) {
   const now = deps.now ?? (() => Date.now());
   const iso = () => new Date(now()).toISOString();
