@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { matchProfile, sameTenant, canCommand, afterSubmit, confirmWifi, nbiUrlAllowed, reconcileStep, syncStep, safeError, snapshotFor, wifiParams, type Profile, type DeviceLike } from "../../supabase/functions/tr069-bridge/logic";
 

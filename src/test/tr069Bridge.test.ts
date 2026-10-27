@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, it, expect, beforeEach } from "vitest";
 import { createHandler, Body } from "../../supabase/functions/tr069-bridge/handler";
 import { decryptSecret } from "../../supabase/functions/tr069-bridge/logic";
