@@ -143,7 +143,7 @@ describe("bridge: comandos e confirmação", () => {
   it("leitura posterior com valor igual confirma; senha nunca confirma", async () => {
     acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : J([{ _id: "G-A", P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:00:05Z" } } }]));
     expect((await call(mk(), "Bearer A", wifi(1))).body.status).toBe("completed");
-    const r = await call(mk(), "Bearer A", wifi(2, { password: "12345678" }));
+    const r = await call(mk(), "Bearer A", wifi(2, { password: "12345678" })); console.log("DBG", JSON.stringify(r));
     expect(r.body.status).toBe("unconfirmed");
     expect(JSON.stringify(db.tr069_tasks)).not.toContain("12345678");
     expect(JSON.stringify(db.tr069_audit)).not.toContain("12345678");
