@@ -162,6 +162,13 @@
       "when": 1793106816301,
       "tag": "0022_tr069_task_read_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793109634889,
+      "tag": "0023_acs_servers_grants",
+      "breakpoints": true
     }
   ]
 }
