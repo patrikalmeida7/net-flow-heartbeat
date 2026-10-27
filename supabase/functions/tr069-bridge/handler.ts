@@ -2,7 +2,7 @@
 import { z } from "npm:zod@3";
 import {
   afterSubmit, canCommand, confirmWifi, decryptSecret, displayProfile, encryptSecret, matchProfile, nbiUrlAllowed, param,
-  reconcileStep, safeError, sameTenant, snapshotFor, syncStep, wifiParams, type Band, type DeviceLike, type Profile, type Snapshot,
+  readPlan, rebootConfirmed, reconcileStep, safeError, sameTenant, snapshotFor, syncStep, verifiable, wifiParams, type Band, type DeviceLike, type Profile, type Snapshot,
 } from "./logic.ts";
 
 // deno-lint-ignore no-explicit-any
