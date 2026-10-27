@@ -1,17 +1,29 @@
 # GenieACS (ACS TR-069) para o NOC-ISP. Isolado do noc-agent, Evolution e demais serviços.
-# CWMP (7547) é público para os modems iniciarem sessão.
-# NBI (7557) NÃO é exposta diretamente: fica atrás do nginx com Basic Auth na porta 7558.
+# Inicia FECHADO: CWMP (7547) e proxy NBI (7558) escutam só em 127.0.0.1 até a liberação explícita
+# (`setup.sh open-cwmp`, que só abre após testar a autenticação dos modems).
+# MongoDB e a NBI original (7557) nunca são publicados.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
 services:
   mongo:
     image: mongo:6.0.16
     restart: unless-stopped
     volumes: [genieacs-mongo:/data/db]
     networks: [acs]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   genieacs:
     image: drumsergio/genieacs:1.2.13
     restart: unless-stopped
-    depends_on: [mongo]
+    depends_on:
+      mongo: { condition: service_healthy }
     environment:
       GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo/genieacs
       GENIEACS_UI_JWT_SECRET: ${GENIEACS_UI_JWT_SECRET:?defina no .env}
@@ -19,22 +31,36 @@ services:
       GENIEACS_NBI_ACCESS_LOG_FILE: /var/log/genieacs/nbi-access.log
       GENIEACS_EXT_DIR: /opt/genieacs/ext
     ports:
-      - "7547:7547"            # CWMP - modems
-      - "127.0.0.1:3000:3000"  # UI do GenieACS apenas local (use túnel SSH se precisar)
+      - "${CWMP_BIND:-127.0.0.1}:7547:7547"  # CWMP - fechado até open-cwmp
+      - "127.0.0.1:3000:3000"                # UI apenas local (túnel SSH)
     volumes:
       - genieacs-logs:/var/log/genieacs
       - genieacs-ext:/opt/genieacs/ext
     networks: [acs]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:7557/devices?projection=_id&limit=1',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   nbi-proxy:
     image: nginx:1.27.2-alpine
     restart: unless-stopped
-    depends_on: [genieacs]
-    ports: ["7558:7558"]
+    depends_on:
+      genieacs: { condition: service_healthy }
+    ports: ["127.0.0.1:7558:7558"]  # só loopback; exponha via HTTPS (README)
     volumes:
       - ./nginx-nbi.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nbi.htpasswd:/etc/nginx/nbi.htpasswd:ro
     networks: [acs]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7558/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
 
 volumes:
   genieacs-mongo:
