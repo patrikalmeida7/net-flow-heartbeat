@@ -189,7 +189,7 @@ export default function TR069() {
           {isAdmin && <Button size="sm" onClick={() => setEditing("new")}>Adicionar</Button>}</CardHeader>
         <CardContent className="space-y-2">
           {servers.isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-          {servers.isError && <p className="text-sm text-destructive">Erro ao carregar. <Button variant="link" onClick={() => servers.refetch()}>Tentar novamente</Button></p>}
+          {servers.isError && <p className="text-sm text-destructive">Erro ao carregar servidores: {(servers.error as Error)?.message ?? "desconhecido"}. <Button variant="link" onClick={() => servers.refetch()}>Tentar novamente</Button></p>}
           {servers.data?.length === 0 && <p className="text-sm text-muted-foreground">Nenhum ACS cadastrado. Instale o GenieACS na VPS (pasta deploy/genieacs) e cadastre aqui.</p>}
           {servers.data?.map((s) => (
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-sm">
