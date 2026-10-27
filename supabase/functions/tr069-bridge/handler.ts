@@ -102,7 +102,7 @@ export function createHandler(deps: Deps) {
         const { data } = await userDb.from("tr069_devices").select("*").eq("id", b.device_id).maybeSingle();
         if (!data) return json({ error: "device not found" }, 404);
         device = data; serverId = data.acs_server_id;
-      } else serverId = b.server_id;
+      } else serverId = (b as { server_id: string }).server_id;
       const { data: srv } = await userDb.from("acs_servers").select("id,organization_id,nbi_url,username,enabled,allow_insecure_http,sync_cursor").eq("id", serverId).maybeSingle();
       if (!srv || !srv.organization_id || !userOrgs.includes(srv.organization_id)) return json({ error: "acs not found" }, 404);
       if (device && !sameTenant(device as DeviceLike, srv, userOrgs)) return json({ error: "device not found" }, 404);
