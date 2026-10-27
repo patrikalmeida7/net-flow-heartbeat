@@ -113,7 +113,7 @@ function log(level, ...args) {
 }
 
 // ---------- Coleta de um MikroTik ----------
-// Connection lives only within one scheduled snapshot and is always closed.
+// Persistent API session: login once, reuse the socket every cycle (no login/logout log spam).
 const pool = new Map();
 function poolKey(mk) { return `${mk.host}:${mk.port}:${mk.user}:${mk.password}:${mk.tls ? 1 : 0}`; }
 function dropConn(mk) {
@@ -134,7 +134,7 @@ async function getConn(mk) {
     port: mk.port || (mk.tls ? 8729 : 8728),
     tls: mk.tls ? { rejectUnauthorized: false } : undefined,
     timeout: Math.ceil(request_timeout_ms / 1000),
-    keepalive: false,
+    keepalive: true,
   });
   conn.on("error", () => dropConn(mk));
   conn.on("close", () => pool.delete(k));
@@ -193,7 +193,7 @@ async function collect(mk) {
         usuarios_online: sessions.length,
       },
       sessions,
-      source: "routeros_snapshot",
+      source: "routeros_realtime",
       concentrador_id: mk.concentrador_id,
       collected_at: new Date().toISOString(),
     };
@@ -306,6 +306,7 @@ function withTimeout(promise, ms, label) {
 }
 
 let routerOsBusy = false;
+const lastIfacePush = new Map();
 async function tickRouterOs() {
   if (routerOsBusy) { log("WARN", "Ciclo RouterOS anterior ainda em andamento — pulando"); return; }
   routerOsBusy = true;
@@ -318,8 +319,11 @@ async function tickRouterOs() {
           const payload = await withTimeout(collect(mk), request_timeout_ms * 2, `coleta ${label}`);
           const res = await send(payload);
           if (res.ok !== true) throw new Error(`API gravação: ${(res.write_errors ?? []).join(" | ")}`);
-          await withTimeout(pushRouterOsInterfaces(mk), request_timeout_ms * 2, `interfaces ${label}`)
-            .catch((e) => { dropConn(mk); log("WARN", `Interfaces ✗ ${label}: ${e.message}`); });
+          if (Date.now() - (lastIfacePush.get(mk.host) ?? 0) > 6 * 3600_000) {
+            lastIfacePush.set(mk.host, Date.now());
+            await withTimeout(pushRouterOsInterfaces(mk), request_timeout_ms * 2, `interfaces ${label}`)
+              .catch((e) => log("WARN", `Interfaces ✗ ${label}: ${e.message}`));
+          }
           log(
             "INFO",
             `✓ ${label} | online=${payload.sessions.length} | new=${res.new_connections} | dis=${res.disconnections} | evt=${res.events}`,
@@ -330,7 +334,7 @@ async function tickRouterOs() {
           log("ERROR", `✗ ${label}:`, err.message);
           if (mk.dynamic) results.push({ id: mk.id, ok: false, error: err.message });
           await sendOfflineStatus(mk, err.message);
-        } finally { dropConn(mk); }
+        }
       }),
     );
     await reportDynamic(results);
@@ -392,7 +396,7 @@ async function tickSnmpInner() {
 }
 
 log("INFO", `🚀 Agente iniciado. ${concentradores.length} concentrador(es), ${rbs.length} RBS.`);
-log("INFO", `→ Revisão ${REVISION} · SNMP exclusivo 30s · API RouterOS automática DESATIVADA`);
+log("INFO", `→ Revisão ${REVISION} · SNMP 30s · API RouterOS tempo real (sessão persistente)`);
 log("INFO", `→ Ingest URL: ${ingest_url}`);
 if (metrics_ingest_url) log("INFO", `→ Metrics URL: ${metrics_ingest_url}`);
 
@@ -411,8 +415,27 @@ async function scheduledApi() {
     if ((await r.json()).claimed) await tickRouterOs();
   } catch (e) { log("ERROR", "API slot:", e.message); }
 }
-// API RouterOS automática desativada: scheduledApi/tickRouterOs ficam apenas para uso futuro sob demanda.
 setInterval(tickSnmp, 30000);
+// API RouterOS em tempo real com sessão persistente (padrão 60s).
+const API_POLL_MS = Math.max(30, Number(process.env.API_POLL_SECONDS) || 60) * 1000;
+async function refreshApiDevices() {
+  if (!MK_CONFIG_URL || !MK_TOKEN) return;
+  try {
+    const res = await fetch(MK_CONFIG_URL, { headers: { Authorization: `Bearer ${MK_TOKEN}` }, signal: AbortSignal.timeout(request_timeout_ms) });
+    if (res.status === 401 || res.status === 403) { for (const mk of concentradores) dropConn(mk); concentradores = [...staticConcentradores]; return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json();
+    if (!Array.isArray(body?.devices)) return;
+    const next = [...staticConcentradores, ...body.devices.map((d) => ({ ...d, dynamic: true }))];
+    const keep = new Set(next.map(poolKey));
+    for (const mk of concentradores) if (!keep.has(poolKey(mk))) dropConn(mk);
+    concentradores = next;
+  } catch (e) { log("WARN", "Falha ao buscar MikroTiks API:", e.message); }
+}
+await refreshApiDevices();
+setInterval(refreshApiDevices, 5 * 60_000);
+await tickRouterOs();
+setInterval(tickRouterOs, API_POLL_MS);
 
 // VPN loop (opcional — só sobe se as variáveis de ambiente estiverem definidas)
 if (process.env.VPN_AGENT_TOKEN && process.env.VPN_SYNC_URL) {
