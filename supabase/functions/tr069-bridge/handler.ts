@@ -182,18 +182,29 @@ export function createHandler(deps: Deps) {
       const pwd = cred.pwd;
       const base = String(srv.nbi_url).replace(/\/+$/, "");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (srv.username) headers.Authorization = "Basic " + btoa(`${srv.username}:${pwd ?? ""}`);
-      const nbi = (path: string, init: RequestInit = {}) => deps.fetch(base + path, { ...init, headers, signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(15000) : undefined });
+      // UTF-8 safe Basic auth (btoa alone breaks on non-Latin1 characters).
+      if (srv.username) headers.Authorization = "Basic " + basicAuth(String(srv.username), pwd ?? "");
+      const nbi = (path: string, init: RequestInit = {}) => deps.fetch(base + path, { ...init, headers, redirect: "manual", signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(15000) : undefined });
 
       const { data: profs } = await admin.from("tr069_profiles").select("*").eq("organization_id", org);
       const profiles = (profs ?? []) as Profile[];
 
       if (b.action === "test") {
         let err: string | null = null, ok = false;
-        try { const r = await nbi("/devices?projection=_id&limit=1"); ok = r.ok; err = r.ok ? null : `HTTP ${r.status}`; await r.body?.cancel(); }
-        catch (e) { err = safeError((e as Error).message); }
+        // Non-secret diagnostics only: never the password, header or a reversible value.
+        const diag: Record<string, unknown> = {
+          endpoint: base + "/devices", username: srv.username ?? null, username_has_spaces: /^\s|\s$/.test(String(srv.username ?? "")),
+          password_stored: pwd != null, password_length: pwd?.length ?? 0, password_edge_whitespace: pwd ? /^\s|\s$/.test(pwd) : false,
+          password_has_newline: pwd ? /[\r\n]/.test(pwd) : false, password_non_ascii: pwd ? /[^\x20-\x7e]/.test(pwd) : false,
+        };
+        try {
+          const r = await nbi("/devices?projection=_id&limit=1");
+          ok = r.ok; err = r.ok ? null : `HTTP ${r.status}`;
+          Object.assign(diag, { status: r.status, server: r.headers.get("server"), www_authenticate: r.headers.get("www-authenticate"), redirect_to: r.headers.get("location") });
+          await r.body?.cancel();
+        } catch (e) { err = safeError((e as Error).message); }
         await admin.from("acs_servers").update({ last_check_at: iso(), last_error: err }).eq("id", srv.id);
-        return json({ ok, error: err });
+        return json({ ok, error: err, diagnostics: diag });
       }
 
       if (b.action === "sync") {
@@ -368,4 +379,10 @@ export function createHandler(deps: Deps) {
       return json({ error: "Erro interno" }, 500);
     }
   };
+}
+
+export function basicAuth(user: string, pass: string): string {
+  const bytes = new TextEncoder().encode(`${user}:${pass}`);
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
 }
