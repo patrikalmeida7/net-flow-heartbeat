@@ -136,14 +136,14 @@ describe("bridge: comandos e confirmação", () => {
   const wifi = (n: number, extra: Record<string, unknown> = {}) => ({ action: "set_wifi", device_id: DEV_A, request_id: rid(n), band: "2g", ssid: "Novo", ...extra });
 
   it("SSID antigo em cache (timestamp anterior) não confirma", async () => {
-    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : J([{ _id: "G-A", P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T11:00:00Z" } } }]));
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : J([{ _id: "G-A", _deviceId: { _Manufacturer: "Huawei", _ProductClass: "HG8145V5" }, P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T11:00:00Z" } } }]));
     const r = await call(mk(), "Bearer A", wifi(1));
     expect(r.body.status).toBe("unconfirmed");
   });
   it("leitura posterior com valor igual confirma; senha nunca confirma", async () => {
-    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : J([{ _id: "G-A", P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:00:05Z" } } }]));
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : J([{ _id: "G-A", _deviceId: { _Manufacturer: "Huawei", _ProductClass: "HG8145V5" }, P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:00:05Z" } } }]));
     expect((await call(mk(), "Bearer A", wifi(1))).body.status).toBe("completed");
-    const r = await call(mk(), "Bearer A", wifi(2, { password: "12345678" })); console.log("DBG", JSON.stringify(r));
+    const r = await call(mk(), "Bearer A", wifi(2, { password: "12345678" }));
     expect(r.body.status).toBe("unconfirmed");
     expect(JSON.stringify(db.tr069_tasks)).not.toContain("12345678");
     expect(JSON.stringify(db.tr069_audit)).not.toContain("12345678");
@@ -173,7 +173,7 @@ describe("bridge: comandos e confirmação", () => {
     acs = (u) => (u.includes("/faults") ? J({}, 503) : J([]));
     await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
     expect(db.tr069_tasks[0].status).toBe("queued");
-    acs = (u, i) => (u.includes("/faults") ? J([]) : i?.method === "POST" ? J({}) : u.includes("/tasks") ? J([]) : J([{ _id: "G-A", P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:10:00Z" } } }]));
+    acs = (u, i) => (u.includes("/faults") ? J([]) : i?.method === "POST" ? J({}) : u.includes("/tasks") ? J([]) : J([{ _id: "G-A", _deviceId: { _Manufacturer: "Huawei", _ProductClass: "HG8145V5" }, P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:10:00Z" } } }]));
     await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
     expect(db.tr069_tasks[0].status).toBe("completed");
     expect(calls.some((c) => c.body?.parameterNames?.[0] === "P.SSID")).toBe(true);
