@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { RefreshCw, Wifi } from "lucide-react";
 
 type Server = { id: string; nome: string; nbi_url: string; cwmp_url: string | null; username: string | null; enabled: boolean; last_check_at: string | null; last_error: string | null; organization_id: string | null; allow_insecure_http: boolean; sync_status: string; sync_cursor: number };
-type Dev = { id: string; serial_number: string | null; manufacturer: string | null; model_name: string | null; software_version: string | null; pppoe_username: string | null; ip_address: string | null; wifi_ssid: string | null; wifi_ssid_5g: string | null; authorized: boolean; last_inform_at: string | null };
+type Dev = { id: string; serial_number: string | null; manufacturer: string | null; model_name: string | null; software_version: string | null; pppoe_username: string | null; ip_address: string | null; wifi_ssid: string | null; wifi_ssid_5g: string | null; authorized: boolean; last_inform_at: string | null; params?: { wifi_source?: string } };
 type Profile = { id: string; nome: string; manufacturer: string | null; product_class: string | null; model_name: string | null; firmware_prefix: string | null; data_model: string; wifi_2g_ssid_path: string | null; wifi_2g_password_path: string | null; wifi_5g_ssid_path: string | null; wifi_5g_password_path: string | null; allow_reboot: boolean; validated: boolean; organization_id: string; pilot_device_id: string | null };
 type Task = { id: string; task_type: string; status: string; error: string | null; confirmation: string | null; payload: Record<string, unknown>; created_at: string };
 
@@ -108,6 +108,7 @@ function DeviceDialog({ dev, onClose, isAdmin }: { dev: Dev; onClose: () => void
         <DialogHeader><DialogTitle>{dev.manufacturer} {dev.model_name} · {dev.serial_number}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>Firmware: {dev.software_version ?? "—"}</div><div>Último Inform: {fmt(dev.last_inform_at)}</div>
+          <div className="col-span-2 font-mono text-xs text-muted-foreground">ID: {dev.id}</div>
           <div>PPPoE: {dev.pppoe_username ?? "—"}</div><div>IP WAN: {dev.ip_address ?? "—"}</div>
           <div>Wi-Fi 2.4G: {dev.wifi_ssid ?? "—"}</div><div>Wi-Fi 5G: {dev.wifi_ssid_5g ?? "—"}</div>
         </div>
@@ -223,7 +224,7 @@ export default function TR069() {
                   <TableCell className="font-mono text-xs">{d.serial_number ?? "—"}</TableCell>
                   <TableCell>{d.manufacturer} {d.model_name}</TableCell>
                   <TableCell>{d.pppoe_username ?? "—"}</TableCell>
-                  <TableCell>{d.wifi_ssid ?? "—"}</TableCell>
+                  <TableCell>{d.wifi_ssid ?? "—"}{d.params?.wifi_source !== "profile" && d.wifi_ssid && <span className="ml-1 text-xs text-muted-foreground" title="Lido por caminho padrão ou perfil não validado">(não validado)</span>}</TableCell>
                   <TableCell>{informAge(d.last_inform_at)}</TableCell>
                   <TableCell><Switch checked={d.authorized} disabled={!isAdmin} onCheckedChange={() => toggleAuth(d)} /></TableCell>
                   <TableCell className="flex gap-1">
