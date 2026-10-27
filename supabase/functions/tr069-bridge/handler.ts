@@ -272,7 +272,7 @@ export function createHandler(deps: Deps) {
         const { data: task, error } = await admin.from("tr069_tasks").insert({
           organization_id: org, acs_server_id: srv.id, device_id: device.id, task_type: b.action, request_id: b.request_id, requested_at: requestedAt,
           payload: band ? { band, ssid, password_changed: pwChanged } : {}, profile_snapshot: snap, profile_id: snap.profile_id,
-          requested_by: uid, status: "requested",
+          requested_by: uid, status: "requested", read_attempts: 0,
         }).select("id").single();
         if (error) {
           if (error.code === "23505") return json({ ok: false, duplicate: true, message: "Já existe uma tarefa deste tipo em aberto para o equipamento" }, 409);
@@ -324,8 +324,10 @@ export function createHandler(deps: Deps) {
         // 2) Reboot is never "read" from the CPE; SSID gets a bounded, tracked read request.
         if (kind === "reboot" || readPlan(t, now()) !== "request") return;
         const attempts = (t.read_attempts ?? 0) + 1;
-        const { error: tErr } = await admin.from("tr069_tasks").update({ read_attempts: attempts, last_read_requested_at: iso() }).eq("id", t.id).eq("read_attempts", t.read_attempts ?? 0);
-        if (tErr) return; // could not record the request: do not send it
+        // Compare-and-set on the counter: concurrent task_status calls cannot both enqueue a read.
+        const { data: claimed, error: tErr } = await admin.from("tr069_tasks").update({ read_attempts: attempts, last_read_requested_at: iso() })
+          .eq("id", t.id).eq("read_attempts", t.read_attempts ?? 0).select("id");
+        if (tErr || !claimed?.length) return; // not recorded: do not send
         if (!(await requestRead(snap.ssid_path!))) return;
         const ok2 = evaluate(await safeRead([snap.ssid_path!]));
         if (ok2) await save(ok2);
