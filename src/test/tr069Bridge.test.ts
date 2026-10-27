@@ -178,8 +178,9 @@ describe("bridge: comandos e confirmação", () => {
     acs = (u, i) => (u.includes("/faults") ? J([]) : i?.method === "POST" ? J({}) : u.includes("/tasks") ? J([]) : J([{ _id: "G-A", _deviceId: { _Manufacturer: "Huawei", _ProductClass: "HG8145V5" }, P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:10:00Z" } } }]));
     await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
     expect(db.tr069_tasks[0].status).toBe("completed");
-    expect(calls.some((c) => c.body?.parameterNames?.[0] === "P.SSID")).toBe(true);
-    expect(calls.some((c) => c.body?.parameterNames?.[0] === "OUTRO.PATH")).toBe(false);
+    // Leitura passiva já trouxe observação posterior: usa o caminho congelado e não enfileira leitura no CPE.
+    expect(calls.some((c) => decodeURIComponent(c.url).includes("P.SSID"))).toBe(true);
+    expect(calls.some((c) => decodeURIComponent(c.url).includes("OUTRO.PATH") || c.body?.parameterNames?.[0] === "OUTRO.PATH")).toBe(false);
   });
   it("perfil não validado só libera o equipamento piloto", async () => {
     db.tr069_profiles[0].validated = false;
