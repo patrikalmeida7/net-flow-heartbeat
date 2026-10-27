@@ -158,8 +158,10 @@ export default function Metricas() {
   }, [deviceSamples]);
 
   const last = trafficSeries[trafficSeries.length - 1];
+  // Picos vêm do máximo de cada intervalo (não da média), para não achatar rajadas.
   const peakOf = (k: "in_bps" | "out_bps") => {
-    const v = trafficSeries.map((r) => r[k]).filter((x): x is number => x != null);
+    const kind = k === "in_bps" ? "if_in_bps" : "if_out_bps";
+    const v = (ifaceSamples ?? []).filter((s) => s.kind === kind).map((s) => s.max);
     return v.length ? Math.max(...v) : null;
   };
   const peakIn = peakOf("in_bps");
