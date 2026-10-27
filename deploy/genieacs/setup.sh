@@ -75,7 +75,7 @@ case "$CMD" in
     fi
     docker compose -p "$PROJECT" up -d
     wait_healthy
-    U=${CRED_USER:-$(cut -d: -f1 cwmp.credentials)}; P=$(cut -d: -f2- cwmp.credentials)
+    U=$(cut -d: -f1 cwmp.credentials); P=$(cut -d: -f2- cwmp.credentials)
     docker compose -p "$PROJECT" exec -T mongo mongosh --quiet genieacs --eval \
       "db.config.updateOne({_id:'cwmp.auth'},{\$set:{value:'AUTH(\"$U\", \"$P\")'}},{upsert:true})" >/dev/null
     sleep 5
