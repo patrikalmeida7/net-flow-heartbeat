@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, MessageCircle, BarChart3, Gauge, History, LogOut, Radio, Server, Settings, Users } from "lucide-react";
+import { Activity, AlertTriangle, MessageCircle, BarChart3, Gauge, History, LogOut, Radio, Server, Settings, Users, Router } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ const nav = [
   { to: "/dashboards", label: "Dashboards SNMP", icon: Gauge },
   { to: "/alertas", label: "Alertas", icon: AlertTriangle },
   { to: "/relatorios", label: "Relatórios e Avisos", icon: MessageCircle },
+  { to: "/tr069", label: "Modems / ONTs", icon: Router },
   { to: "/eventos", label: "Histórico", icon: History },
 ];
 

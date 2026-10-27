@@ -23,6 +23,7 @@ import DashboardsPersonalizadas from "./pages/DashboardsPersonalizadas";
 import Analise from "./pages/Analise";
 import Relatorios from "./pages/Relatorios";
 import Admin from "./pages/Admin";
+import TR069 from "./pages/TR069";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,7 @@ const App = () => (
               <Route path="/dashboards" element={<DashboardsPersonalizadas />} />
               <Route path="/analise" element={<Analise />} />
               <Route path="/relatorios" element={<Relatorios />} />
+              <Route path="/tr069" element={<TR069 />} />
               <Route
                 path="/admin"
                 element={
