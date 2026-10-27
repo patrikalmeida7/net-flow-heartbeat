@@ -3,7 +3,7 @@
 # NBI (7557) NÃO é exposta diretamente: fica atrás do nginx com Basic Auth na porta 7558.
 services:
   mongo:
-    image: mongo:6.0
+    image: mongo:6.0.16
     restart: unless-stopped
     volumes: [genieacs-mongo:/data/db]
     networks: [acs]
@@ -27,7 +27,7 @@ services:
     networks: [acs]
 
   nbi-proxy:
-    image: nginx:1.27-alpine
+    image: nginx:1.27.2-alpine
     restart: unless-stopped
     depends_on: [genieacs]
     ports: ["7558:7558"]

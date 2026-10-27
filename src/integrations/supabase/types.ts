@@ -1545,6 +1545,8 @@ export type Database = {
       tr069_devices: {
         Row: {
           acs_server_id: string
+          approved_at: string | null
+          approved_by: string | null
           authorized: boolean
           created_at: string
           genie_id: string
@@ -1567,6 +1569,8 @@ export type Database = {
         }
         Insert: {
           acs_server_id: string
+          approved_at?: string | null
+          approved_by?: string | null
           authorized?: boolean
           created_at?: string
           genie_id: string
@@ -1589,6 +1593,8 @@ export type Database = {
         }
         Update: {
           acs_server_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
           authorized?: boolean
           created_at?: string
           genie_id?: string
@@ -1626,50 +1632,143 @@ export type Database = {
           },
         ]
       }
+      tr069_profiles: {
+        Row: {
+          allow_reboot: boolean
+          created_at: string
+          data_model: string
+          firmware_prefix: string | null
+          id: string
+          manufacturer: string | null
+          model_name: string | null
+          nome: string
+          notes: string | null
+          organization_id: string
+          product_class: string | null
+          updated_at: string
+          validated: boolean
+          validated_at: string | null
+          validated_by: string | null
+          wifi_2g_password_path: string | null
+          wifi_2g_ssid_path: string | null
+          wifi_5g_password_path: string | null
+          wifi_5g_ssid_path: string | null
+        }
+        Insert: {
+          allow_reboot?: boolean
+          created_at?: string
+          data_model?: string
+          firmware_prefix?: string | null
+          id?: string
+          manufacturer?: string | null
+          model_name?: string | null
+          nome: string
+          notes?: string | null
+          organization_id: string
+          product_class?: string | null
+          updated_at?: string
+          validated?: boolean
+          validated_at?: string | null
+          validated_by?: string | null
+          wifi_2g_password_path?: string | null
+          wifi_2g_ssid_path?: string | null
+          wifi_5g_password_path?: string | null
+          wifi_5g_ssid_path?: string | null
+        }
+        Update: {
+          allow_reboot?: boolean
+          created_at?: string
+          data_model?: string
+          firmware_prefix?: string | null
+          id?: string
+          manufacturer?: string | null
+          model_name?: string | null
+          nome?: string
+          notes?: string | null
+          organization_id?: string
+          product_class?: string | null
+          updated_at?: string
+          validated?: boolean
+          validated_at?: string | null
+          validated_by?: string | null
+          wifi_2g_password_path?: string | null
+          wifi_2g_ssid_path?: string | null
+          wifi_5g_password_path?: string | null
+          wifi_5g_ssid_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tr069_profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tr069_tasks: {
         Row: {
+          acs_server_id: string | null
           completed_at: string | null
+          confirmation: string | null
           created_at: string
           device_id: string
           error: string | null
           genie_task_id: string | null
           id: string
+          idempotency_key: string | null
           organization_id: string | null
           payload: Json
+          profile_id: string | null
           requested_by: string | null
           status: string
           task_type: string
           updated_at: string
         }
         Insert: {
+          acs_server_id?: string | null
           completed_at?: string | null
+          confirmation?: string | null
           created_at?: string
           device_id: string
           error?: string | null
           genie_task_id?: string | null
           id?: string
+          idempotency_key?: string | null
           organization_id?: string | null
           payload?: Json
+          profile_id?: string | null
           requested_by?: string | null
           status?: string
           task_type: string
           updated_at?: string
         }
         Update: {
+          acs_server_id?: string | null
           completed_at?: string | null
+          confirmation?: string | null
           created_at?: string
           device_id?: string
           error?: string | null
           genie_task_id?: string | null
           id?: string
+          idempotency_key?: string | null
           organization_id?: string | null
           payload?: Json
+          profile_id?: string | null
           requested_by?: string | null
           status?: string
           task_type?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tr069_tasks_acs_server_id_fkey"
+            columns: ["acs_server_id"]
+            isOneToOne: false
+            referencedRelation: "acs_servers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tr069_tasks_device_id_fkey"
             columns: ["device_id"]
