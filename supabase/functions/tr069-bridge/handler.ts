@@ -380,3 +380,9 @@ export function createHandler(deps: Deps) {
     }
   };
 }
+
+export function basicAuth(user: string, pass: string): string {
+  const bytes = new TextEncoder().encode(`${user}:${pass}`);
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
