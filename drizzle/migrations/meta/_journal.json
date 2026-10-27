@@ -134,6 +134,13 @@
       "when": 1793102260692,
       "tag": "0018_tr069_acs_module",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793102690438,
+      "tag": "0019_tr069_isolation_profiles",
+      "breakpoints": true
     }
   ]
 }
