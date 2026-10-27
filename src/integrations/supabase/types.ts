@@ -58,6 +58,59 @@ export type Database = {
           },
         ]
       }
+      acs_servers: {
+        Row: {
+          created_at: string
+          cwmp_url: string | null
+          enabled: boolean
+          id: string
+          last_check_at: string | null
+          last_error: string | null
+          nbi_url: string
+          nome: string
+          organization_id: string | null
+          password_encrypted: string | null
+          updated_at: string
+          username: string | null
+        }
+        Insert: {
+          created_at?: string
+          cwmp_url?: string | null
+          enabled?: boolean
+          id?: string
+          last_check_at?: string | null
+          last_error?: string | null
+          nbi_url: string
+          nome: string
+          organization_id?: string | null
+          password_encrypted?: string | null
+          updated_at?: string
+          username?: string | null
+        }
+        Update: {
+          created_at?: string
+          cwmp_url?: string | null
+          enabled?: boolean
+          id?: string
+          last_check_at?: string | null
+          last_error?: string | null
+          nbi_url?: string
+          nome?: string
+          organization_id?: string | null
+          password_encrypted?: string | null
+          updated_at?: string
+          username?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acs_servers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           created_at: string
@@ -1489,6 +1542,150 @@ export type Database = {
         }
         Relationships: []
       }
+      tr069_devices: {
+        Row: {
+          acs_server_id: string
+          authorized: boolean
+          created_at: string
+          genie_id: string
+          id: string
+          ip_address: string | null
+          last_inform_at: string | null
+          manufacturer: string | null
+          model_name: string | null
+          organization_id: string | null
+          oui: string | null
+          params: Json
+          pppoe_username: string | null
+          product_class: string | null
+          serial_number: string | null
+          software_version: string | null
+          synced_at: string | null
+          updated_at: string
+          wifi_ssid: string | null
+          wifi_ssid_5g: string | null
+        }
+        Insert: {
+          acs_server_id: string
+          authorized?: boolean
+          created_at?: string
+          genie_id: string
+          id?: string
+          ip_address?: string | null
+          last_inform_at?: string | null
+          manufacturer?: string | null
+          model_name?: string | null
+          organization_id?: string | null
+          oui?: string | null
+          params?: Json
+          pppoe_username?: string | null
+          product_class?: string | null
+          serial_number?: string | null
+          software_version?: string | null
+          synced_at?: string | null
+          updated_at?: string
+          wifi_ssid?: string | null
+          wifi_ssid_5g?: string | null
+        }
+        Update: {
+          acs_server_id?: string
+          authorized?: boolean
+          created_at?: string
+          genie_id?: string
+          id?: string
+          ip_address?: string | null
+          last_inform_at?: string | null
+          manufacturer?: string | null
+          model_name?: string | null
+          organization_id?: string | null
+          oui?: string | null
+          params?: Json
+          pppoe_username?: string | null
+          product_class?: string | null
+          serial_number?: string | null
+          software_version?: string | null
+          synced_at?: string | null
+          updated_at?: string
+          wifi_ssid?: string | null
+          wifi_ssid_5g?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tr069_devices_acs_server_id_fkey"
+            columns: ["acs_server_id"]
+            isOneToOne: false
+            referencedRelation: "acs_servers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tr069_devices_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tr069_tasks: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          device_id: string
+          error: string | null
+          genie_task_id: string | null
+          id: string
+          organization_id: string | null
+          payload: Json
+          requested_by: string | null
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          device_id: string
+          error?: string | null
+          genie_task_id?: string | null
+          id?: string
+          organization_id?: string | null
+          payload?: Json
+          requested_by?: string | null
+          status?: string
+          task_type: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          device_id?: string
+          error?: string | null
+          genie_task_id?: string | null
+          id?: string
+          organization_id?: string | null
+          payload?: Json
+          requested_by?: string | null
+          status?: string
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tr069_tasks_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "tr069_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tr069_tasks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -1849,6 +2046,7 @@ export type Database = {
           username: string
         }[]
       }
+      get_acs_password: { Args: { _id: string }; Returns: string }
       get_device_credential_password: {
         Args: { _credential_id: string }
         Returns: string
@@ -1941,6 +2139,10 @@ export type Database = {
       }
       save_snmp_credentials: {
         Args: { _id: string; _values: Json }
+        Returns: undefined
+      }
+      set_acs_password: {
+        Args: { _id: string; _password: string }
         Returns: undefined
       }
       set_device_credential_password: {

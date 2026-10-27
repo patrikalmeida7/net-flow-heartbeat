@@ -127,6 +127,13 @@
       "when": 1793058303289,
       "tag": "0017_custom_dashboards",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793102260692,
+      "tag": "0018_tr069_acs_module",
+      "breakpoints": true
     }
   ]
 }
