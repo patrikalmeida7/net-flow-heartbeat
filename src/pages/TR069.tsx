@@ -15,7 +15,8 @@ import { RefreshCw, Wifi } from "lucide-react";
 
 type Server = { id: string; nome: string; nbi_url: string; cwmp_url: string | null; username: string | null; enabled: boolean; last_check_at: string | null; last_error: string | null; organization_id: string | null };
 type Dev = { id: string; serial_number: string | null; manufacturer: string | null; model_name: string | null; software_version: string | null; pppoe_username: string | null; ip_address: string | null; wifi_ssid: string | null; wifi_ssid_5g: string | null; authorized: boolean; last_inform_at: string | null };
-type Task = { id: string; task_type: string; status: string; error: string | null; payload: Record<string, unknown>; created_at: string };
+type Profile = { id: string; nome: string; manufacturer: string | null; product_class: string | null; model_name: string | null; firmware_prefix: string | null; data_model: string; wifi_2g_ssid_path: string | null; wifi_2g_password_path: string | null; wifi_5g_ssid_path: string | null; wifi_5g_password_path: string | null; allow_reboot: boolean; validated: boolean; organization_id: string };
+type Task = { id: string; task_type: string; status: string; error: string | null; confirmation: string | null; payload: Record<string, unknown>; created_at: string };
 
 const bridge = async (body: Record<string, unknown>) => {
   const { data, error } = await supabase.functions.invoke("tr069-bridge", { body });
@@ -34,6 +35,7 @@ function ServerForm({ onDone, server }: { onDone: () => void; server?: Server })
   const [f, setF] = useState({ nome: server?.nome ?? "GenieACS", nbi_url: server?.nbi_url ?? "", cwmp_url: server?.cwmp_url ?? "", username: server?.username ?? "", password: "" });
   const save = async () => {
     const { data: org } = await supabase.from("organization_members").select("organization_id").limit(1).maybeSingle();
+    if (!server?.organization_id && !org?.organization_id) return toast.error("Sua conta não pertence a nenhuma empresa");
     const row = { nome: f.nome, nbi_url: f.nbi_url.trim(), cwmp_url: f.cwmp_url.trim() || null, username: f.username.trim() || null, organization_id: server?.organization_id ?? org?.organization_id ?? null };
     const res = server ? await supabase.from("acs_servers").update(row).eq("id", server.id).select("id").single()
       : await supabase.from("acs_servers").insert(row).select("id").single();
@@ -86,7 +88,13 @@ function DeviceDialog({ dev, onClose, isAdmin }: { dev: Dev; onClose: () => void
       qc.invalidateQueries({ queryKey: ["tr069_tasks", dev.id] });
     } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   };
-  const statusLabel: Record<string, string> = { pending: "Registrando", queued: "Pendente (próxima sessão)", completed: "Aplicado", failed: "Falhou" };
+  const statusLabel: Record<string, string> = { requested: "Solicitada", pending: "Solicitada", queued: "Pendente (próxima sessão)", completed: "Concluída (confirmada)", unconfirmed: "Aplicada sem confirmação", failed: "Falhou" };
+  const reboot = async () => {
+    if (!window.confirm("Reiniciar este equipamento? O cliente ficará sem internet por alguns minutos.")) return;
+    setBusy(true);
+    try { const r = await bridge({ action: "reboot", device_id: dev.id, confirm: true }); toast.info(r.message ?? r.status); qc.invalidateQueries({ queryKey: ["tr069_tasks", dev.id] }); }
+    catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">
@@ -105,8 +113,9 @@ function DeviceDialog({ dev, onClose, isAdmin }: { dev: Dev; onClose: () => void
               </div>
               <Input placeholder="Novo nome (SSID) — opcional" maxLength={32} value={ssid} onChange={(e) => setSsid(e.target.value)} />
               <Input placeholder="Nova senha (8–63) — opcional" type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} />
-              <p className="text-xs text-muted-foreground">Se o ACS não alcançar o equipamento, o comando fica pendente e é aplicado na próxima sessão iniciada pelo modem. Compatível apenas com modelos que expõem os parâmetros padrão TR-098/TR-181.</p>
-              <Button onClick={send} disabled={busy || (!ssid && pwd.length < 8)}>Enviar</Button>
+              <p className="text-xs text-muted-foreground">Se o ACS não alcançar o equipamento, o comando fica pendente e é aplicado na próxima sessão iniciada pelo modem. Só funciona com perfil validado para este modelo/firmware; bandas sem parâmetro no perfil são recusadas. A senha não pode ser conferida por leitura.</p>
+              <div className="flex gap-2"><Button onClick={send} disabled={busy || (!ssid && pwd.length < 8)}>Enviar</Button>
+                <Button variant="outline" onClick={reboot} disabled={busy}>Reiniciar…</Button></div>
             </CardContent></Card>
         ) : <p className="text-sm text-muted-foreground">Autorize o equipamento para liberar comandos.</p>)}
         <div>
@@ -115,8 +124,8 @@ function DeviceDialog({ dev, onClose, isAdmin }: { dev: Dev; onClose: () => void
           {tasks.data?.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma tarefa.</p>}
           {tasks.data?.map((t) => (
             <div key={t.id} className="flex justify-between border-b py-1 text-sm">
-              <span>{fmt(t.created_at)} · Wi-Fi {String(t.payload.band ?? "")}{t.payload.ssid ? ` → ${t.payload.ssid}` : ""}{t.payload.password_changed ? " · senha" : ""}</span>
-              <span title={t.error ?? ""}><Badge variant={t.status === "failed" ? "destructive" : "outline"}>{statusLabel[t.status] ?? t.status}</Badge></span>
+              <span>{fmt(t.created_at)} · {t.task_type === "reboot" ? "Reinício" : `Wi-Fi ${String(t.payload.band ?? "")}`}{t.payload.ssid ? ` → ${t.payload.ssid}` : ""}{t.payload.password_changed ? " · senha" : ""}</span>
+              <span title={t.error ?? t.confirmation ?? ""}><Badge variant={t.status === "failed" ? "destructive" : "outline"}>{statusLabel[t.status] ?? t.status}</Badge></span>
             </div>
           ))}
         </div>
@@ -154,8 +163,8 @@ export default function TR069() {
     } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
   };
   const toggleAuth = async (d: Dev) => {
-    const { error } = await supabase.from("tr069_devices").update({ authorized: !d.authorized }).eq("id", d.id);
-    if (error) toast.error(error.message); else qc.invalidateQueries({ queryKey: ["tr069_devices"] });
+    try { await bridge({ action: "approve", device_id: d.id, authorized: !d.authorized }); qc.invalidateQueries({ queryKey: ["tr069_devices"] }); }
+    catch (e) { toast.error((e as Error).message); }
   };
 
   return (
@@ -186,6 +195,8 @@ export default function TR069() {
         </CardContent>
       </Card>
 
+      <ProfilesCard isAdmin={isAdmin} />
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">Equipamentos {devices.data && `(${devices.data.count})`}</CardTitle>
@@ -194,7 +205,7 @@ export default function TR069() {
         <CardContent>
           {devices.isError && <p className="text-sm text-destructive">Erro ao carregar. <Button variant="link" onClick={() => devices.refetch()}>Tentar novamente</Button></p>}
           <Table>
-            <TableHeader><TableRow><TableHead>Serial</TableHead><TableHead>Modelo</TableHead><TableHead>PPPoE</TableHead><TableHead>Wi-Fi</TableHead><TableHead>Sessão</TableHead><TableHead>Autorizado</TableHead><TableHead /></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Serial</TableHead><TableHead>Modelo</TableHead><TableHead>PPPoE</TableHead><TableHead>Wi-Fi</TableHead><TableHead>Sessão</TableHead><TableHead>Aprovado</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>
               {devices.isLoading && <TableRow><TableCell colSpan={7}>Carregando…</TableCell></TableRow>}
               {devices.data?.rows.length === 0 && <TableRow><TableCell colSpan={7} className="text-muted-foreground">Nenhum equipamento sincronizado.</TableCell></TableRow>}
@@ -224,5 +235,54 @@ export default function TR069() {
       </Dialog>
       {open && <DeviceDialog dev={open} isAdmin={isAdmin} onClose={() => setOpen(null)} />}
     </div>
+  );
+}
+
+const PF = [["nome","Nome"],["manufacturer","Fabricante (igual ao ACS)"],["product_class","Product class"],["model_name","Modelo"],["firmware_prefix","Firmware começa com"],["wifi_2g_ssid_path","Parâmetro SSID 2,4 GHz"],["wifi_2g_password_path","Parâmetro senha 2,4 GHz"],["wifi_5g_ssid_path","Parâmetro SSID 5 GHz (vazio = sem suporte)"],["wifi_5g_password_path","Parâmetro senha 5 GHz"]] as const;
+function ProfilesCard({ isAdmin }: { isAdmin: boolean }) {
+  const qc = useQueryClient();
+  const [edit, setEdit] = useState<Partial<Profile> | null>(null);
+  const list = useQuery({ queryKey: ["tr069_profiles"], queryFn: async () => {
+    const { data, error } = await supabase.from("tr069_profiles").select("*").order("nome"); if (error) throw error; return data as Profile[];
+  } });
+  const save = async () => {
+    if (!edit) return;
+    const { data: org } = await supabase.from("organization_members").select("organization_id").limit(1).maybeSingle();
+    const row = { ...Object.fromEntries(PF.map(([k]) => [k, (edit[k] as string | null)?.trim() || null])), nome: edit.nome?.trim() || "Perfil",
+      allow_reboot: !!edit.allow_reboot, validated: !!edit.validated, organization_id: edit.organization_id ?? org?.organization_id } as Record<string, unknown>;
+    if (!row.organization_id) return toast.error("Sua conta não pertence a nenhuma empresa");
+    if (!row.manufacturer && !row.product_class && !row.model_name) return toast.error("Informe fabricante, product class ou modelo");
+    const res = edit.id ? await supabase.from("tr069_profiles").update(row as never).eq("id", edit.id) : await supabase.from("tr069_profiles").insert(row as never);
+    if (res.error) return toast.error(res.error.message);
+    setEdit(null); qc.invalidateQueries({ queryKey: ["tr069_profiles"] });
+  };
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Perfis de modelo/firmware</CardTitle>
+        {isAdmin && <Button size="sm" onClick={() => setEdit({})}>Adicionar</Button>}</CardHeader>
+      <CardContent className="space-y-1 text-sm">
+        <p className="text-xs text-muted-foreground">Comandos só são liberados para equipamentos aprovados cujo modelo/firmware tenha um perfil marcado como validado (testado em um equipamento real).</p>
+        {list.isError && <p className="text-destructive">Erro ao carregar perfis.</p>}
+        {list.data?.length === 0 && <p className="text-muted-foreground">Nenhum perfil: todos os comandos estão bloqueados.</p>}
+        {list.data?.map((p) => (
+          <div key={p.id} className="flex items-center justify-between border-b py-1">
+            <span><b>{p.nome}</b> · {[p.manufacturer, p.product_class, p.model_name, p.firmware_prefix && `fw ${p.firmware_prefix}*`].filter(Boolean).join(" · ")} · {p.wifi_5g_ssid_path ? "2,4+5 GHz" : "2,4 GHz"}{p.allow_reboot && " · reinício"}</span>
+            <span className="flex gap-2"><Badge variant={p.validated ? "default" : "secondary"}>{p.validated ? "Validado" : "Não validado"}</Badge>
+              {isAdmin && <Button size="sm" variant="ghost" onClick={() => setEdit(p)}>Editar</Button>}</span>
+          </div>
+        ))}
+      </CardContent>
+      <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Perfil de parâmetros</DialogTitle></DialogHeader>
+          {edit && <div className="grid gap-2">
+            {PF.map(([k, l]) => <div key={k} className="grid gap-1"><Label>{l}</Label>
+              <Input value={(edit[k] as string) ?? ""} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} /></div>)}
+            <label className="flex items-center gap-2 text-sm"><Switch checked={!!edit.allow_reboot} onCheckedChange={(c) => setEdit({ ...edit, allow_reboot: c })} />Permitir reinício</label>
+            <label className="flex items-center gap-2 text-sm"><Switch checked={!!edit.validated} onCheckedChange={(c) => setEdit({ ...edit, validated: c })} />Validado em equipamento real</label>
+            <Button onClick={save}>Salvar</Button>
+          </div>}
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }
