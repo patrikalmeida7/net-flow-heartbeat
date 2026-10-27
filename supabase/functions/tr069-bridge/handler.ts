@@ -37,7 +37,7 @@ export const Body = z.discriminatedUnion("action", [
   if (v.action === "set_wifi" && !v.ssid && !v.password) ctx.addIssue({ code: "custom", message: "Informe SSID ou senha" });
 });
 
-const BASE_PROJ = ["_id", "_lastInform", "_deviceId", "_tags",
+const BASE_PROJ = ["_id", "_lastInform", "_lastBoot", "_deviceId", "_tags",
   "InternetGatewayDevice.DeviceInfo.SoftwareVersion", "InternetGatewayDevice.DeviceInfo.ModelName",
   "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID", "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
   "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username",
@@ -291,7 +291,7 @@ export function createHandler(deps: Deps) {
         if (status === "queued") confirmation = "Aguardando próxima sessão do equipamento";
         if (status === "unconfirmed") {
           if (b.action === "reboot") confirmation = "ACS aplicou; reinício confirmado só quando o equipamento voltar a informar";
-          else if (snap.ssid_path && ssid && await requestRead(snap.ssid_path)) {
+          else if (snap.ssid_path && ssid && (await admin.from("tr069_tasks").update({ read_attempts: 1, last_read_requested_at: iso() }).eq("id", task.id)).error == null && await requestRead(snap.ssid_path)) {
             const d = await readDevice([snap.ssid_path]);
             ({ status, confirmation, observed_at } = confirmWifi(ssid, d ? param(d, snap.ssid_path) : null, requestedAt, pwChanged));
           } else ({ status, confirmation, observed_at } = confirmWifi(ssid, null, requestedAt, pwChanged));
