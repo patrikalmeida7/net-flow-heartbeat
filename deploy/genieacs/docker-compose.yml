@@ -1,0 +1,45 @@
+# GenieACS (ACS TR-069) para o NOC-ISP. Isolado do noc-agent, Evolution e demais serviços.
+# CWMP (7547) é público para os modems iniciarem sessão.
+# NBI (7557) NÃO é exposta diretamente: fica atrás do nginx com Basic Auth na porta 7558.
+services:
+  mongo:
+    image: mongo:6.0
+    restart: unless-stopped
+    volumes: [genieacs-mongo:/data/db]
+    networks: [acs]
+
+  genieacs:
+    image: drumsergio/genieacs:1.2.13
+    restart: unless-stopped
+    depends_on: [mongo]
+    environment:
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://mongo/genieacs
+      GENIEACS_UI_JWT_SECRET: ${GENIEACS_UI_JWT_SECRET:?defina no .env}
+      GENIEACS_CWMP_ACCESS_LOG_FILE: /var/log/genieacs/cwmp-access.log
+      GENIEACS_NBI_ACCESS_LOG_FILE: /var/log/genieacs/nbi-access.log
+      GENIEACS_EXT_DIR: /opt/genieacs/ext
+    ports:
+      - "7547:7547"            # CWMP - modems
+      - "127.0.0.1:3000:3000"  # UI do GenieACS apenas local (use túnel SSH se precisar)
+    volumes:
+      - genieacs-logs:/var/log/genieacs
+      - genieacs-ext:/opt/genieacs/ext
+    networks: [acs]
+
+  nbi-proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [genieacs]
+    ports: ["7558:7558"]
+    volumes:
+      - ./nginx-nbi.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nbi.htpasswd:/etc/nginx/nbi.htpasswd:ro
+    networks: [acs]
+
+volumes:
+  genieacs-mongo:
+  genieacs-logs:
+  genieacs-ext:
+
+networks:
+  acs:
