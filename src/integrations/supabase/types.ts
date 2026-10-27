@@ -58,8 +58,38 @@ export type Database = {
           },
         ]
       }
+      acs_server_secrets: {
+        Row: {
+          ciphertext: string
+          key_version: number
+          server_id: string
+          updated_at: string
+        }
+        Insert: {
+          ciphertext: string
+          key_version?: number
+          server_id: string
+          updated_at?: string
+        }
+        Update: {
+          ciphertext?: string
+          key_version?: number
+          server_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acs_server_secrets_server_id_fkey"
+            columns: ["server_id"]
+            isOneToOne: true
+            referencedRelation: "acs_servers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       acs_servers: {
         Row: {
+          allow_insecure_http: boolean
           created_at: string
           cwmp_url: string | null
           enabled: boolean
@@ -70,10 +100,15 @@ export type Database = {
           nome: string
           organization_id: string | null
           password_encrypted: string | null
+          sync_cursor: number
+          sync_seen: number
+          sync_status: string
+          sync_updated_at: string | null
           updated_at: string
           username: string | null
         }
         Insert: {
+          allow_insecure_http?: boolean
           created_at?: string
           cwmp_url?: string | null
           enabled?: boolean
@@ -84,10 +119,15 @@ export type Database = {
           nome: string
           organization_id?: string | null
           password_encrypted?: string | null
+          sync_cursor?: number
+          sync_seen?: number
+          sync_status?: string
+          sync_updated_at?: string | null
           updated_at?: string
           username?: string | null
         }
         Update: {
+          allow_insecure_http?: boolean
           created_at?: string
           cwmp_url?: string | null
           enabled?: boolean
@@ -98,6 +138,10 @@ export type Database = {
           nome?: string
           organization_id?: string | null
           password_encrypted?: string | null
+          sync_cursor?: number
+          sync_seen?: number
+          sync_status?: string
+          sync_updated_at?: string | null
           updated_at?: string
           username?: string | null
         }
@@ -1542,6 +1586,50 @@ export type Database = {
         }
         Relationships: []
       }
+      tr069_audit: {
+        Row: {
+          acs_server_id: string | null
+          action: string
+          actor: string | null
+          created_at: string
+          detail: Json
+          device_id: string | null
+          id: number
+          organization_id: string
+          result: string
+        }
+        Insert: {
+          acs_server_id?: string | null
+          action: string
+          actor?: string | null
+          created_at?: string
+          detail?: Json
+          device_id?: string | null
+          id?: never
+          organization_id: string
+          result: string
+        }
+        Update: {
+          acs_server_id?: string | null
+          action?: string
+          actor?: string | null
+          created_at?: string
+          detail?: Json
+          device_id?: string | null
+          id?: never
+          organization_id?: string
+          result?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tr069_audit_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tr069_devices: {
         Row: {
           acs_server_id: string
@@ -1644,6 +1732,7 @@ export type Database = {
           nome: string
           notes: string | null
           organization_id: string
+          pilot_device_id: string | null
           product_class: string | null
           updated_at: string
           validated: boolean
@@ -1665,6 +1754,7 @@ export type Database = {
           nome: string
           notes?: string | null
           organization_id: string
+          pilot_device_id?: string | null
           product_class?: string | null
           updated_at?: string
           validated?: boolean
@@ -1686,6 +1776,7 @@ export type Database = {
           nome?: string
           notes?: string | null
           organization_id?: string
+          pilot_device_id?: string | null
           product_class?: string | null
           updated_at?: string
           validated?: boolean
@@ -1704,6 +1795,13 @@ export type Database = {
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "tr069_profiles_pilot_device_id_fkey"
+            columns: ["pilot_device_id"]
+            isOneToOne: false
+            referencedRelation: "tr069_devices"
+            referencedColumns: ["id"]
+          },
         ]
       }
       tr069_tasks: {
@@ -1717,9 +1815,13 @@ export type Database = {
           genie_task_id: string | null
           id: string
           idempotency_key: string | null
+          observed_at: string | null
           organization_id: string | null
           payload: Json
           profile_id: string | null
+          profile_snapshot: Json | null
+          request_id: string | null
+          requested_at: string
           requested_by: string | null
           status: string
           task_type: string
@@ -1735,9 +1837,13 @@ export type Database = {
           genie_task_id?: string | null
           id?: string
           idempotency_key?: string | null
+          observed_at?: string | null
           organization_id?: string | null
           payload?: Json
           profile_id?: string | null
+          profile_snapshot?: Json | null
+          request_id?: string | null
+          requested_at?: string
           requested_by?: string | null
           status?: string
           task_type: string
@@ -1753,9 +1859,13 @@ export type Database = {
           genie_task_id?: string | null
           id?: string
           idempotency_key?: string | null
+          observed_at?: string | null
           organization_id?: string | null
           payload?: Json
           profile_id?: string | null
+          profile_snapshot?: Json | null
+          request_id?: string | null
+          requested_at?: string
           requested_by?: string | null
           status?: string
           task_type?: string
