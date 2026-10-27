@@ -11,13 +11,13 @@ const DEV_A = "30000000-0000-4000-8000-000000000001", DEV_B = "30000000-0000-400
 const PROF = "40000000-0000-4000-8000-000000000001";
 const rid = (n: number) => `50000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-let db: Record<string, Row[]>; let seq = 0;
+let db: Record<string, Row[]>; let seq = 0; let failOn = new Set<string>(); let onOp: ((k: string) => void) | null = null;
 function fakeDb(scopeOrgs: string[] | null) {
   return {
     rpc: async (fn: string, a: Row) => {
       if (fn === "is_authorized") return { data: a._user_id !== "blocked" };
       if (fn === "has_role") return { data: a._user_id !== U_V };
-      if (fn === "get_acs_password") return { data: null };
+      if (fn === "get_acs_password") { if (failOn.has("rpc:get_acs_password")) return { data: null, error: { message: "x" } }; return { data: db.acs_servers.find((r) => r.id === a._id)?.password_encrypted ?? null, error: null }; }
       return { data: null };
     },
     from(t: string) {
@@ -30,6 +30,8 @@ function fakeDb(scopeOrgs: string[] | null) {
         if (["requested", "queued", "unknown"].includes(r.status) && db[t].some((x) => x.device_id === r.device_id && x.task_type === r.task_type && ["requested", "queued", "unknown"].includes(x.status))) throw { code: "23505" };
       };
       const exec = () => {
+        onOp?.(`${t}:${st.op}`);
+        if (failOn.has(`${t}:${st.op}`)) return { data: null, error: { message: "db fail" } };
         try {
           if (st.op === "select") return { data: visible().filter(match), error: null };
           if (st.op === "insert") { const rows = [].concat(st.payload).map((r: Row) => ({ id: `gen-${++seq}`, ...r })); rows.forEach((r) => { uniq(r); db[t].push(r); }); return { data: rows, error: null }; }
@@ -38,7 +40,7 @@ function fakeDb(scopeOrgs: string[] | null) {
             const keys = (st.opts?.onConflict ?? "id").split(",");
             for (const r of [].concat(st.payload) as Row[]) {
               const ex = db[t].find((x) => keys.every((k: string) => x[k] === r[k]));
-              if (ex) Object.assign(ex, r); else db[t].push({ id: `gen-${++seq}`, authorized: false, ...r });
+              if (ex) { if (!st.opts?.ignoreDuplicates) Object.assign(ex, r); } else db[t].push({ id: `gen-${++seq}`, authorized: false, ...r });
             }
             return { data: null, error: null };
           }
@@ -76,7 +78,7 @@ const J = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s }
 const T0 = Date.parse("2026-10-27T12:00:00Z");
 
 beforeEach(() => {
-  seq = 0; calls = []; clock = T0; acs = () => J([]);
+  seq = 0; calls = []; clock = T0; acs = () => J([]); failOn = new Set(); onOp = null;
   db = {
     organization_members: [{ user_id: U_A, organization_id: ORG_A }, { user_id: U_V, organization_id: ORG_A }, { user_id: U_B, organization_id: ORG_B }],
     acs_servers: [
@@ -176,8 +178,9 @@ describe("bridge: comandos e confirmação", () => {
     acs = (u, i) => (u.includes("/faults") ? J([]) : i?.method === "POST" ? J({}) : u.includes("/tasks") ? J([]) : J([{ _id: "G-A", _deviceId: { _Manufacturer: "Huawei", _ProductClass: "HG8145V5" }, P: { SSID: { _value: "Novo", _timestamp: "2026-10-27T12:10:00Z" } } }]));
     await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
     expect(db.tr069_tasks[0].status).toBe("completed");
-    expect(calls.some((c) => c.body?.parameterNames?.[0] === "P.SSID")).toBe(true);
-    expect(calls.some((c) => c.body?.parameterNames?.[0] === "OUTRO.PATH")).toBe(false);
+    // Leitura passiva já trouxe observação posterior: usa o caminho congelado e não enfileira leitura no CPE.
+    expect(calls.some((c) => decodeURIComponent(c.url).includes("P.SSID"))).toBe(true);
+    expect(calls.some((c) => decodeURIComponent(c.url).includes("OUTRO.PATH") || c.body?.parameterNames?.[0] === "OUTRO.PATH")).toBe(false);
   });
   it("perfil não validado só libera o equipamento piloto", async () => {
     db.tr069_profiles[0].validated = false;
@@ -204,5 +207,115 @@ describe("bridge: sincronização retomável", () => {
     expect(r3.body.complete).toBe(true);
     expect(db.tr069_devices.find((d) => d.genie_id === "G-0")!.authorized).toBe(true);
     expect(db.tr069_devices.filter((d) => d.acs_server_id === SRV_A && d.genie_id?.startsWith("G-") && d.genie_id !== "G-A").length).toBe(5);
+  });
+});
+
+describe("bridge: migração da senha antiga", () => {
+  const legacyOnly = () => { db.acs_servers[0].password_encrypted = "antiga"; };
+  it("falha na gravação cifrada preserva a credencial antiga", async () => {
+    legacyOnly(); failOn.add("acs_server_secrets:upsert");
+    const r = await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });
+    expect(r.status).toBe(200);
+    expect(db.acs_servers[0].password_encrypted).toBe("antiga");
+    expect(db.acs_server_secrets).toHaveLength(0);
+  });
+  it("falha na releitura também preserva a antiga; nova chamada retoma e conclui", async () => {
+    legacyOnly();
+    let n = 0; onOp = (k) => { if (k === "acs_server_secrets:select" && ++n === 2) failOn.add("acs_server_secrets:select"); };
+    expect((await call(mk(), "Bearer A", { action: "test", server_id: SRV_A })).status).toBe(200); // usa a antiga
+    expect(db.acs_servers[0].password_encrypted).toBe("antiga");
+    failOn.clear(); onOp = null;
+    await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });
+    expect(db.acs_servers[0].password_encrypted).toBeNull();
+    expect(await decryptSecret(db.acs_server_secrets[0].ciphertext, KEY, SRV_A)).toBe("antiga");
+  });
+  it("falha ao limpar a antiga é retomada na próxima chamada", async () => {
+    legacyOnly(); failOn.add("acs_servers:update");
+    await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });
+    expect(db.acs_server_secrets).toHaveLength(1); expect(db.acs_servers[0].password_encrypted).toBe("antiga");
+    failOn.clear();
+    await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });
+    expect(db.acs_servers[0].password_encrypted).toBeNull();
+  });
+  it("senha nova gravada durante a migração não é sobrescrita pela antiga", async () => {
+    legacyOnly();
+    const h = mk();
+    // set_password concorrente entra exatamente antes da gravação da migração
+    let done = false;
+    onOp = (k) => { if (k === "acs_server_secrets:upsert" && !done) { done = true; db.acs_server_secrets.push({ server_id: SRV_A, ciphertext: "PENDING" }); } };
+    const { encryptSecret } = await import("../../supabase/functions/tr069-bridge/logic");
+    const nova = await encryptSecret("nova", KEY, SRV_A);
+    onOp = (k) => { if (k === "acs_server_secrets:upsert" && !done) { done = true; db.acs_server_secrets.push({ server_id: SRV_A, ciphertext: nova }); } };
+    let auth = "";
+    acs = (u, i) => { auth = String((i?.headers as Record<string, string>)?.Authorization ?? ""); return J([]); };
+    await call(h, "Bearer A", { action: "test", server_id: SRV_A });
+    expect(await decryptSecret(db.acs_server_secrets[0].ciphertext, KEY, SRV_A)).toBe("nova");
+    expect(atob(auth.replace("Basic ", ""))).toBe("noc:nova");
+    expect(db.acs_servers[0].password_encrypted).toBeNull();
+  });
+  it("erro na leitura da credencial não segue com senha vazia", async () => {
+    failOn.add("acs_server_secrets:select");
+    const r = await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });
+    expect(r.status).toBe(500); expect(calls).toHaveLength(0);
+    expect(JSON.stringify(r.body)).not.toContain("antiga");
+  });
+});
+
+describe("bridge: reconciliação de tarefas não confirmadas", () => {
+  const dev = (ssid: { v: string; ts: string } | null, extra: Row = {}) => J([{ _id: "G-A", _deviceId: { _Manufacturer: "Huawei", _ProductClass: "HG8145V5" }, ...(ssid ? { P: { SSID: { _value: ssid.v, _timestamp: ssid.ts } } } : {}), ...extra }]);
+  const posts = () => calls.filter((c) => c.body);
+  it("unconfirmed recebe depois observação válida e conclui, sem reenviar o comando", async () => {
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : dev({ v: "Velho", ts: "2026-10-27T11:00:00Z" }));
+    const h = mk();
+    expect((await call(h, "Bearer A", { action: "set_wifi", device_id: DEV_A, request_id: rid(1), band: "2g", ssid: "Novo" })).body.status).toBe("unconfirmed");
+    const before = posts().filter((c) => c.body.name === "setParameterValues").length;
+    clock += 10 * 60000;
+    acs = (u, i) => (i?.method === "POST" ? J({}) : dev({ v: "Novo", ts: "2026-10-27T12:09:00Z" }));
+    await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
+    expect(db.tr069_tasks[0].status).toBe("completed");
+    expect(posts().filter((c) => c.body.name === "setParameterValues").length).toBe(before);
+  });
+  it("leituras limitadas e espaçadas: sem duplicar nem reenviar", async () => {
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : dev(null));
+    const h = mk();
+    await call(h, "Bearer A", { action: "set_wifi", device_id: DEV_A, request_id: rid(2), band: "2g", ssid: "Novo" });
+    const reads = () => posts().filter((c) => c.body.name === "getParameterValues").length;
+    const r0 = reads();
+    await call(h, "Bearer A", { action: "task_status", device_id: DEV_A }); // dentro do intervalo
+    await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
+    expect(reads()).toBe(r0);
+    for (let i = 0; i < 6; i++) { clock += 6 * 60000; await call(h, "Bearer A", { action: "task_status", device_id: DEV_A }); }
+    expect(reads()).toBe(3); // READ_MAX
+    expect(db.tr069_tasks[0].status).toBe("unconfirmed");
+    expect(posts().filter((c) => c.body.name === "setParameterValues")).toHaveLength(1);
+  });
+  it("senha write-only não é consultada nem confirmada", async () => {
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : dev(null));
+    const h = mk();
+    await call(h, "Bearer A", { action: "set_wifi", device_id: DEV_A, request_id: rid(3), band: "2g", password: "12345678" });
+    const n = calls.length;
+    for (let i = 0; i < 3; i++) { clock += 10 * 60000; await call(h, "Bearer A", { action: "task_status", device_id: DEV_A }); }
+    expect(calls.length).toBe(n);
+    expect(db.tr069_tasks[0].status).toBe("unconfirmed");
+  });
+  it("reinício: contato posterior isolado não confirma; boot posterior confirma", async () => {
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : dev(null, { _lastInform: "2026-10-27T12:05:00Z", _lastBoot: "2026-10-26T00:00:00Z" }));
+    const h = mk();
+    expect((await call(h, "Bearer A", { action: "reboot", device_id: DEV_A, request_id: rid(4), confirm: true })).body.status).toBe("unconfirmed");
+    await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
+    expect(db.tr069_tasks[0].status).toBe("unconfirmed");
+    acs = () => dev(null, { _lastBoot: "2026-10-27T12:03:00Z" });
+    await call(h, "Bearer A", { action: "task_status", device_id: DEV_A });
+    expect(db.tr069_tasks[0].status).toBe("completed");
+    expect(posts().filter((c) => c.body.name === "reboot")).toHaveLength(1);
+  });
+  it("erro ao consultar o ACS mantém inconclusivo", async () => {
+    acs = (u, i) => (i?.method === "POST" ? J({ _id: "t1" }) : dev(null));
+    const h = mk();
+    await call(h, "Bearer A", { action: "set_wifi", device_id: DEV_A, request_id: rid(5), band: "2g", ssid: "Novo" });
+    acs = () => { throw new Error("down"); };
+    clock += 10 * 60000;
+    expect((await call(h, "Bearer A", { action: "task_status", device_id: DEV_A })).status).toBe(200);
+    expect(db.tr069_tasks[0].status).toBe("unconfirmed");
   });
 });

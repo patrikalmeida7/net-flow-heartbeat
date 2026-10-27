@@ -155,6 +155,13 @@
       "when": 1793103582639,
       "tag": "0021_acs_lab_http_flag_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793106816301,
+      "tag": "0022_tr069_task_read_tracking",
+      "breakpoints": true
     }
   ]
 }

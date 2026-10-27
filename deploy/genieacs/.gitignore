@@ -1,3 +1,4 @@
 .env
 nbi.htpasswd
+nbi.credentials
 cwmp.credentials

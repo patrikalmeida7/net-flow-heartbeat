@@ -2,7 +2,7 @@
 import { z } from "npm:zod@3";
 import {
   afterSubmit, canCommand, confirmWifi, decryptSecret, displayProfile, encryptSecret, matchProfile, nbiUrlAllowed, param,
-  reconcileStep, safeError, sameTenant, snapshotFor, syncStep, wifiParams, type Band, type DeviceLike, type Profile, type Snapshot,
+  readPlan, rebootConfirmed, reconcileStep, safeError, sameTenant, snapshotFor, syncStep, verifiable, wifiParams, type Band, type DeviceLike, type Profile, type Snapshot,
 } from "./logic.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -37,7 +37,7 @@ export const Body = z.discriminatedUnion("action", [
   if (v.action === "set_wifi" && !v.ssid && !v.password) ctx.addIssue({ code: "custom", message: "Informe SSID ou senha" });
 });
 
-const BASE_PROJ = ["_id", "_lastInform", "_deviceId", "_tags",
+const BASE_PROJ = ["_id", "_lastInform", "_lastBoot", "_deviceId", "_tags",
   "InternetGatewayDevice.DeviceInfo.SoftwareVersion", "InternetGatewayDevice.DeviceInfo.ModelName",
   "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID", "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
   "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username",
@@ -67,6 +67,42 @@ export function mapDevice(d: any, profiles: Profile[], ctx: { organization_id: s
         wifi_ssid_5g: val(d, tr181 ? "Device.WiFi.SSID.2.SSID" : "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID"), wifi_source: "guess" };
   const { wifi_source, ...w } = wifi;
   return { ...base, ...w, params: { data_model: tr181 ? "tr181" : "tr098", tags: d._tags ?? [], wifi_source } };
+}
+
+/**
+ * Reads the ACS password. Legacy column is migrated without ever overwriting a newer password
+ * (insert-if-absent), verified by re-reading and decrypting, and cleared only after that check.
+ * Any failure keeps the legacy value in place, so the next request resumes idempotently. Values are never logged.
+ */
+export async function loadPassword(admin: Db, key: string, serverId: string, iso: () => string): Promise<{ ok: true; pwd: string | null } | { ok: false }> {
+  const readStored = async () => {
+    const { data, error } = await admin.from("acs_server_secrets").select("ciphertext").eq("server_id", serverId).maybeSingle();
+    if (error) return { error: true as const };
+    if (!data?.ciphertext) return { pwd: null };
+    try { return { pwd: await decryptSecret(data.ciphertext, key, serverId) }; } catch { return { error: true as const }; }
+  };
+  const clearLegacy = async () => {
+    const { error } = await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", serverId);
+    if (error) console.error("tr069-bridge: limpeza da senha antiga pendente");
+  };
+  const stored = await readStored();
+  if ("error" in stored) return { ok: false };
+  const { data: legacy, error: lErr } = await admin.rpc("get_acs_password", { _id: serverId });
+  if (stored.pwd != null) {
+    if (!lErr && legacy) await clearLegacy(); // resume an interrupted migration
+    return { ok: true, pwd: stored.pwd };
+  }
+  if (lErr) return { ok: false };
+  if (!legacy) return { ok: true, pwd: null };
+  let ciphertext: string;
+  try { ciphertext = await encryptSecret(legacy, key, serverId); } catch { return { ok: true, pwd: legacy }; }
+  const { error: wErr } = await admin.from("acs_server_secrets")
+    .upsert({ server_id: serverId, ciphertext, key_version: 1, updated_at: iso() }, { onConflict: "server_id", ignoreDuplicates: true });
+  if (wErr) { console.error("tr069-bridge: migração da senha do ACS falhou; senha antiga preservada"); return { ok: true, pwd: legacy }; }
+  const after = await readStored();
+  if ("error" in after || after.pwd == null) return { ok: true, pwd: legacy }; // not confirmed: keep legacy
+  await clearLegacy();
+  return { ok: true, pwd: after.pwd }; // a concurrent set_password may have won: use the stored (newer) value
 }
 
 export function createHandler(deps: Deps) {
@@ -114,7 +150,9 @@ export function createHandler(deps: Deps) {
         const ciphertext = await encryptSecret(b.password, deps.secretKey, srv.id);
         const { error } = await admin.from("acs_server_secrets").upsert({ server_id: srv.id, ciphertext, key_version: 1, updated_at: iso() }, { onConflict: "server_id" });
         if (error) return json({ error: "Não foi possível salvar a senha" }, 500);
-        await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", srv.id);
+        // New store wins over the legacy column; a failed clear is retried on the next request.
+        const { error: clr } = await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", srv.id);
+        if (clr) console.error("tr069-bridge: limpeza da senha antiga pendente");
         await audit("set_password", "ok");
         return json({ ok: true });
       }
@@ -138,18 +176,10 @@ export function createHandler(deps: Deps) {
       const urlOk = nbiUrlAllowed(String(srv.nbi_url), !!srv.allow_insecure_http);
       if (!urlOk.ok) return json({ error: (urlOk as { reason: string }).reason }, 400);
 
-      // Credentials: new store, with one-time lazy migration from the deprecated column.
-      let pwd: string | null = null;
-      const { data: sec } = await admin.from("acs_server_secrets").select("ciphertext").eq("server_id", srv.id).maybeSingle();
-      if (sec?.ciphertext) pwd = await decryptSecret(sec.ciphertext, deps.secretKey, srv.id);
-      else {
-        const { data: legacy } = await admin.rpc("get_acs_password", { _id: srv.id });
-        if (legacy) {
-          pwd = legacy;
-          await admin.from("acs_server_secrets").upsert({ server_id: srv.id, ciphertext: await encryptSecret(legacy, deps.secretKey, srv.id), updated_at: iso() }, { onConflict: "server_id" });
-          await admin.from("acs_servers").update({ password_encrypted: null }).eq("id", srv.id);
-        }
-      }
+      // Credentials: new store, with resumable lazy migration from the deprecated column.
+      const cred = await loadPassword(admin, deps.secretKey, srv.id, iso);
+      if (!cred.ok) return json({ error: "Credencial do ACS indisponível" }, 500);
+      const pwd = cred.pwd;
       const base = String(srv.nbi_url).replace(/\/+$/, "");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (srv.username) headers.Authorization = "Basic " + btoa(`${srv.username}:${pwd ?? ""}`);
@@ -242,7 +272,7 @@ export function createHandler(deps: Deps) {
         const { data: task, error } = await admin.from("tr069_tasks").insert({
           organization_id: org, acs_server_id: srv.id, device_id: device.id, task_type: b.action, request_id: b.request_id, requested_at: requestedAt,
           payload: band ? { band, ssid, password_changed: pwChanged } : {}, profile_snapshot: snap, profile_id: snap.profile_id,
-          requested_by: uid, status: "requested",
+          requested_by: uid, status: "requested", read_attempts: 0,
         }).select("id").single();
         if (error) {
           if (error.code === "23505") return json({ ok: false, duplicate: true, message: "Já existe uma tarefa deste tipo em aberto para o equipamento" }, 409);
@@ -261,7 +291,7 @@ export function createHandler(deps: Deps) {
         if (status === "queued") confirmation = "Aguardando próxima sessão do equipamento";
         if (status === "unconfirmed") {
           if (b.action === "reboot") confirmation = "ACS aplicou; reinício confirmado só quando o equipamento voltar a informar";
-          else if (snap.ssid_path && ssid && await requestRead(snap.ssid_path)) {
+          else if (snap.ssid_path && ssid && (await admin.from("tr069_tasks").update({ read_attempts: 1, last_read_requested_at: iso() }).eq("id", task.id)).error == null && await requestRead(snap.ssid_path)) {
             const d = await readDevice([snap.ssid_path]);
             ({ status, confirmation, observed_at } = confirmWifi(ssid, d ? param(d, snap.ssid_path) : null, requestedAt, pwChanged));
           } else ({ status, confirmation, observed_at } = confirmWifi(ssid, null, requestedAt, pwChanged));
@@ -271,10 +301,42 @@ export function createHandler(deps: Deps) {
         return json({ ok: status !== "failed", status, message: err ?? confirmation });
       }
 
-      // task_status: reconcile using the task's frozen snapshot, never the current profile.
-      const { data: pend } = await admin.from("tr069_tasks").select("id,genie_task_id,task_type,payload,profile_snapshot,requested_at,status")
-        .eq("device_id", device.id).eq("organization_id", org).in("status", ["queued", "unknown"]);
+      // task_status: reconcile using the task's frozen snapshot, never the current profile. Never resends the original command.
+      const safeRead = async (paths: string[]) => { try { return await readDevice(paths); } catch { return null; } };
+      // deno-lint-ignore no-explicit-any
+      const checkUnconfirmed = async (t: any) => {
+        const kind = verifiable(t);
+        if (!kind) return; // write-only password: stays unconfirmed, no further reads
+        const snap = t.profile_snapshot as Snapshot;
+        // deno-lint-ignore no-explicit-any
+        const p = (t.payload ?? {}) as any;
+        const evaluate = (d: unknown) => {
+          if (kind === "reboot") return d && rebootConfirmed((d as { _lastBoot?: unknown })._lastBoot, t.requested_at)
+            ? { status: "completed" as const, confirmation: "Reinício confirmado por novo boot posterior à solicitação", observed_at: String((d as { _lastBoot: string })._lastBoot) } : null;
+          const r = confirmWifi(p.ssid, d ? param(d, snap.ssid_path) : null, t.requested_at, !!p.password_changed);
+          return r.observed_at && Date.parse(r.observed_at) > Date.parse(t.requested_at) && r.confirmation.startsWith("SSID confirmado") ? r : null;
+        };
+        const save = (r: { status: string; confirmation: string; observed_at: string | null }) =>
+          admin.from("tr069_tasks").update({ ...r, error: null, completed_at: r.status === "completed" ? iso() : null }).eq("id", t.id);
+        // 1) Passive read of what the ACS already holds (no CPE task).
+        const ok1 = evaluate(await safeRead(kind === "ssid" ? [snap.ssid_path!] : []));
+        if (ok1) { await save(ok1); return; }
+        // 2) Reboot is never "read" from the CPE; SSID gets a bounded, tracked read request.
+        if (kind === "reboot" || readPlan(t, now()) !== "request") return;
+        const attempts = (t.read_attempts ?? 0) + 1;
+        // Compare-and-set on the counter: concurrent task_status calls cannot both enqueue a read.
+        const { data: claimed, error: tErr } = await admin.from("tr069_tasks").update({ read_attempts: attempts, last_read_requested_at: iso() })
+          .eq("id", t.id).eq("read_attempts", t.read_attempts ?? 0).select("id");
+        if (tErr || !claimed?.length) return; // not recorded: do not send
+        if (!(await requestRead(snap.ssid_path!))) return;
+        const ok2 = evaluate(await safeRead([snap.ssid_path!]));
+        if (ok2) await save(ok2);
+      };
+      const { data: pend, error: pErr } = await admin.from("tr069_tasks").select("id,genie_task_id,task_type,payload,profile_snapshot,requested_at,status,confirmation,read_attempts,last_read_requested_at")
+        .eq("device_id", device.id).eq("organization_id", org).in("status", ["queued", "unknown", "unconfirmed"]);
+      if (pErr) return json({ ok: false, error: "Não foi possível consultar as tarefas" }, 500);
       for (const t of pend ?? []) {
+        if (t.status === "unconfirmed") { await checkUnconfirmed(t); continue; }
         let tasksOk = false, stillQueued = false;
         try {
           const tq = t.genie_task_id ? { _id: t.genie_task_id } : { device: gid };
@@ -293,15 +355,12 @@ export function createHandler(deps: Deps) {
         const step = reconcileStep({ tasksOk, stillQueued, faultsOk, faultCount });
         if (step === "keep") continue;
         if (step === "failed") { await admin.from("tr069_tasks").update({ status: "failed", error: safeError(JSON.stringify(faultCode ?? "fault")) }).eq("id", t.id); continue; }
-        const snap = t.profile_snapshot as Snapshot | null;
         // deno-lint-ignore no-explicit-any
-        const p = t.payload as any;
-        let r2 = { status: "unconfirmed" as const, confirmation: "ACS aplicou; sem leitura de confirmação", observed_at: null as string | null } as ReturnType<typeof confirmWifi>;
-        if (t.task_type === "set_wifi" && snap?.ssid_path && p.ssid) {
-          const d = (await requestRead(snap.ssid_path)) ? await readDevice([snap.ssid_path]) : null;
-          r2 = confirmWifi(p.ssid, d ? param(d, snap.ssid_path) : null, t.requested_at, !!p.password_changed);
-        } else if (t.task_type === "set_wifi") r2 = confirmWifi(null, null, t.requested_at, !!p.password_changed);
-        await admin.from("tr069_tasks").update({ ...r2, error: null, completed_at: r2.status === "completed" ? iso() : null }).eq("id", t.id);
+        const p = (t.payload ?? {}) as any;
+        const base = t.task_type === "set_wifi" ? confirmWifi(p.ssid ?? null, null, t.requested_at, !!p.password_changed)
+          : { status: "unconfirmed" as const, confirmation: "ACS aplicou; reinício confirmado só com novo boot posterior", observed_at: null };
+        const { error: uErr } = await admin.from("tr069_tasks").update({ ...base, error: null, completed_at: null }).eq("id", t.id);
+        if (!uErr) await checkUnconfirmed({ ...t, ...base, status: "unconfirmed" });
       }
       return json({ ok: true });
     } catch (e) {

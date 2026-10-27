@@ -3,37 +3,42 @@
 Piloto: **uma instância ACS exclusiva por empresa** (Texas Fibra). Tags/filtros do GenieACS não isolam empresas.
 A aprovação de equipamentos no NOC **não substitui** a autenticação na entrada do ACS.
 
-## 1. Instalação fechada
+## 1. Instalação fechada (terminal da VPS ou ICP)
+O instalador precisa de terminal (SSH ou console do ICP): ele gera credenciais, grava `cwmp.auth` no MongoDB e testa tudo.
+Só pela tela "Compose" do ICP não há como executar esses testes.
 ```
+# copie a pasta deploy/genieacs para a VPS, ex. /opt/noc-genieacs (arquivos: setup.sh, docker-compose.yml, nginx-nbi.conf)
+cd /opt/noc-genieacs
 sudo bash setup.sh install
 ```
-- Verifica dependências (docker, compose v2, openssl, curl, ss) e conflitos de porta 7547/7558/3000 **antes** de criar qualquer arquivo; aborta se não conseguir verificar.
-- Detecta instalação existente (containers, inclusive parados, ou volumes do projeto `noc-genieacs`) e sai sem alterar nada.
-- Nunca sobrescreve `.env`, `nbi.htpasswd`, `cwmp.credentials`. Não altera firewall nem outros serviços.
-- Sobe tudo **só em 127.0.0.1**, aguarda healthchecks, grava `cwmp.auth` exigindo usuário/senha e testa:
-  sem credencial → 401, credencial inválida → 401, credencial correta → aceita, NBI sem senha → 401.
-  Só então informa sucesso.
-- MongoDB e a NBI original (7557) nunca são publicados. UI (3000) só local (túnel SSH).
+- Dependências: docker, compose v2, openssl, curl, ss, python3, base64. Verifica portas 7547/7558/3000 antes de criar arquivos.
+- Instalação existente (containers/volumes `noc-genieacs`) não é tocada.
+- Sobe tudo **só em 127.0.0.1** e testa: CWMP com um Inform TR-069 real (sem credencial → 401, inválida → 401,
+  correta → 200 com `InformResponse`); NBI (sem senha → 401, errada → 401, correta → 200 com JSON). Timeout, 000, 403,
+  500 ou resposta inesperada reprovam. O teste registra no ACS um equipamento fictício `NOC-SELFTEST` (pode ser apagado).
+- Segredos ficam em `cwmp.credentials` e `nbi.credentials` (permissão 600). Nada é impresso: consulte com
+  `sudo cat /opt/noc-genieacs/nbi.credentials`. Não rode com `bash -x`.
+- Instalações anteriores sem `nbi.credentials`: crie o arquivo com `noc:SENHA` (chmod 600) antes de `verify`.
 
-## 2. API NBI por HTTPS
-O NOC recusa NBI em HTTP. Publique o proxy local `127.0.0.1:7558` atrás de HTTPS, ex. Caddy:
+## 2. API NBI por HTTPS (nginx existente)
+Use o nginx que já está na VPS (não suba outro serviço em 80/443). Exemplo de server block:
 ```
-acs-api.suaempresa.com.br {
-  reverse_proxy 127.0.0.1:7558
+server {
+  listen 443 ssl; server_name acs-api.texasfibra.com.br;
+  # ssl_certificate ... (certificado existente/Let's Encrypt)
+  location / { proxy_pass http://127.0.0.1:7558; proxy_set_header Host $host; }
 }
 ```
-Restrinja o acesso no firewall quando possível. Cadastre no NOC: `https://acs-api.suaempresa.com.br`, usuário `noc` e a senha mostrada na instalação.
-Exceção de laboratório (HTTP) existe por servidor, desligada por padrão, e aparece marcada na tela.
+Cadastre no NOC: `https://acs-api.texasfibra.com.br`, usuário `noc` e a senha de `nbi.credentials`.
 
-## 3. Modem piloto e liberação do CWMP
-1. Configure **um** modem piloto: ACS URL `http://IP:7547` (ou `https://` atrás de proxy TLS, se o firmware suportar), usuário/senha de `cwmp.credentials`, Periodic Inform 300–3600s.
-2. Liberação explícita, que re-testa a autenticação antes de publicar:
-   ```
-   sudo CONFIRM_OPEN=yes bash setup.sh open-cwmp
-   ```
-   Firewall continua sob sua responsabilidade. Para fechar: `CWMP_BIND=127.0.0.1` no `.env` e `docker compose -p noc-genieacs up -d genieacs`.
-3. No NOC: Sincronizar, aprovar o piloto, criar perfil com **Equipamento piloto** = ID do piloto (não validado). Isso libera comandos só para ele.
-4. Após testar no piloto, marque o perfil como **Validado** para liberar os demais equipamentos aprovados do mesmo modelo/firmware.
+## 3. Modem piloto e liberação do CWMP (acs.texasfibra.com.br)
+CWMP continua fechado até `open-cwmp` passar. Para HTTPS no CWMP, o mesmo nginx pode encaminhar
+`acs.texasfibra.com.br` → `127.0.0.1:7547` (então não é preciso publicar 7547).
+1. Configure **um** modem piloto: ACS URL `https://acs.texasfibra.com.br` (ou `http://IP:7547` após open-cwmp),
+   usuário/senha de `cwmp.credentials`, Periodic Inform 300–3600s.
+2. Publicação direta da 7547 (opcional), que re-testa antes e depois e volta para 127.0.0.1 se falhar:
+   `sudo CONFIRM_OPEN=yes bash setup.sh open-cwmp`
+3. No NOC: Sincronizar, aprovar o piloto, criar perfil com **Equipamento piloto**; após testar, marcar **Validado**.
 
 ## Versões, atualização, backup
 - Imagens fixadas: `mongo:6.0.16`, `drumsergio/genieacs:1.2.13`, `nginx:1.27.2-alpine`. Logs com rotação (10 MB × 5).
@@ -43,11 +48,11 @@ Exceção de laboratório (HTTP) existe por servidor, desligada por padrão, e a
 docker compose -p noc-genieacs exec -T mongo mongodump --archive --gzip --db genieacs > genieacs-$(date +%F).gz
 docker compose -p noc-genieacs exec -T mongo mongorestore --archive --gzip --drop < genieacs-AAAA-MM-DD.gz
 ```
-Guarde `.env`, `nbi.htpasswd` e `cwmp.credentials` fora do servidor, com acesso restrito.
+Guarde `.env`, `nbi.htpasswd`, `nbi.credentials` e `cwmp.credentials` fora do servidor, com acesso restrito.
 
 ## Comportamento das tarefas
 Solicitada → Pendente (próxima sessão) / Resultado desconhecido (timeout após envio: confira no ACS antes de repetir) →
 Concluída (SSID lido do equipamento **depois** do comando) / Aplicada sem confirmação / Falhou.
-Senha Wi-Fi é somente escrita: nunca aparece como confirmada. O GenieACS não garante execução única; o NOC evita reenvio
+Senha Wi-Fi é somente escrita: nunca aparece como confirmada. Tarefas aplicadas sem confirmação são reverificadas sem reenviar o comando: SSID com até 3 leituras espaçadas de 5 min; reinício só confirma com novo boot posterior. O GenieACS não garante execução única; o NOC evita reenvio
 pelo mesmo identificador da solicitação e bloqueia nova tarefa do mesmo tipo enquanto outra estiver aberta.
 Reset de fábrica e firmware não são oferecidos.

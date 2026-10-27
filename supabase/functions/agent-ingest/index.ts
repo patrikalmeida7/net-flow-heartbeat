@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
     const known = new Map((current ?? []).map((s)=>[s.username,s.id]));
     const writeErrors: string[]=[];
     // Realtime: persistent API session polled every minute, so absences are real drops.
-    // Snapshot (legacy 6h): absence time/count unknown, never emit events.
+    // Snapshot (legacy): absence time/count unknown, never emit events.
     const realtime = body.source === "routeros_realtime";
     const absentRows=(current ?? []).filter((s)=>!incoming.has(s.username));
     // Empty list while many were online = suspicious read; never manufacture a mass outage.

@@ -101,6 +101,29 @@ export function reconcileStep(i: { tasksOk: boolean; stillQueued: boolean; fault
   return i.faultCount > 0 ? "failed" : "applied";
 }
 
+/** What can still be verified on an `unconfirmed` task. Password-only changes are write-only: nothing to verify. */
+export type UnconfirmedTask = { task_type: string; payload?: { ssid?: string | null } | null; profile_snapshot?: Snapshot | null; confirmation?: string | null };
+export function verifiable(t: UnconfirmedTask): "ssid" | "reboot" | null {
+  if (t.task_type === "reboot") return "reboot";
+  if (t.task_type === "set_wifi" && t.payload?.ssid && t.profile_snapshot?.ssid_path && !String(t.confirmation ?? "").startsWith("SSID confirmado")) return "ssid";
+  return null;
+}
+
+/** Bounded confirmation reads: at most READ_MAX requests, spaced READ_INTERVAL_MS apart. */
+export const READ_MAX = 3, READ_INTERVAL_MS = 5 * 60000;
+export function readPlan(t: { read_attempts?: number | null; last_read_requested_at?: string | null }, now: number): "request" | "wait" | "exhausted" {
+  const n = t.read_attempts ?? 0;
+  if (n >= READ_MAX) return "exhausted";
+  if (t.last_read_requested_at && now - Date.parse(t.last_read_requested_at) < READ_INTERVAL_MS) return "wait";
+  return "request";
+}
+
+/** Reboot needs specific evidence: a boot (GenieACS _lastBoot) strictly after the request. A later Inform alone is not proof. */
+export function rebootConfirmed(lastBoot: unknown, requestedAt: string): boolean {
+  const t = typeof lastBoot === "string" ? Date.parse(lastBoot) : NaN;
+  return Number.isFinite(t) && t > Date.parse(requestedAt);
+}
+
 /** Resumable sync paging within a time budget. Never reports complete while items may remain. */
 export function syncStep(cursor: number, pageLen: number, pageSize: number, elapsedMs: number, budgetMs: number) {
   const next = cursor + pageLen;

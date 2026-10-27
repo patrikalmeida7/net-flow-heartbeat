@@ -1815,11 +1815,13 @@ export type Database = {
           genie_task_id: string | null
           id: string
           idempotency_key: string | null
+          last_read_requested_at: string | null
           observed_at: string | null
           organization_id: string | null
           payload: Json
           profile_id: string | null
           profile_snapshot: Json | null
+          read_attempts: number
           request_id: string | null
           requested_at: string
           requested_by: string | null
@@ -1837,11 +1839,13 @@ export type Database = {
           genie_task_id?: string | null
           id?: string
           idempotency_key?: string | null
+          last_read_requested_at?: string | null
           observed_at?: string | null
           organization_id?: string | null
           payload?: Json
           profile_id?: string | null
           profile_snapshot?: Json | null
+          read_attempts?: number
           request_id?: string | null
           requested_at?: string
           requested_by?: string | null
@@ -1859,11 +1863,13 @@ export type Database = {
           genie_task_id?: string | null
           id?: string
           idempotency_key?: string | null
+          last_read_requested_at?: string | null
           observed_at?: string | null
           organization_id?: string | null
           payload?: Json
           profile_id?: string | null
           profile_snapshot?: Json | null
+          read_attempts?: number
           request_id?: string | null
           requested_at?: string
           requested_by?: string | null

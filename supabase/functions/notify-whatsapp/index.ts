@@ -171,7 +171,7 @@ async function buildDaily(rules: Map<string, Rule>, titulo = "Relatório diário
     `👥 Fotografia API PPPoE: *${sm.snapshot_online ?? "Sem dados"}* · ${sm.last_session_update ? fmtBahia(String(sm.last_session_update)) : "sincronização desconhecida"}`,
     `📉 Histórico de quedas individuais 24h: *${a.individual_drops ?? 0}*`,
     `🚨 Histórico de quedas em massa 24h: *${a.mass_incidents ?? 0}* (${a.mass_affected ?? 0} clientes afetados)`,
-    "Quedas e instabilidade em tempo real indisponíveis (PPPoE sincroniza a cada 6h).",
+    "Clientes PPPoE: conforme última leitura da API RouterOS (veja horário no painel).",
     `🔔 Alertas em 24h: *${alerts ?? 0}*`,
   ];
   if (inc("concentrador_down") || inc("cpu_high") || inc("memory_high")) {
