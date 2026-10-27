@@ -32,6 +32,8 @@ esac`);
   stub("ss", opts.ssFail ? "exit 1" : `echo -n "${opts.ssOut ?? ""}"`);
   stub("openssl", `echo "openssl $*" >> "${dir}/argv.log"; if [ "$1" = passwd ]; then cat > /dev/null; echo '$apr1$hash'; else echo stubvalue; fi`);
   stub("sleep", "true");
+  const py = execFileSync("bash", ["-c", "command -v python3"]).toString().trim();
+  stub("python3", `exec ${py} "$@"`);
   const cw = { none: DENY, bad: DENY, good: OK_INFORM, ...opts.cwmp };
   const nb = { none: DENY, bad: DENY, good: { code: "200", body: "[]" }, ...opts.nbi };
   const enc = (r: Resp) => `${r.code}|${r.exit ?? 0}|${Buffer.from(r.body ?? "").toString("base64")}`;
@@ -48,7 +50,7 @@ IFS='|' read -r code ex b64 <<< "$r"
 [ -n "$out" ] && echo -n "$b64" | base64 -d > "$out"
 echo -n "$code"; exit $ex`);
   const env = { PATH: opts.missing?.length ? bin + ":/nonexistent" : `${bin}:/usr/bin:/bin`, ...opts.env } as NodeJS.ProcessEnv;
-  if (opts.missing?.length) for (const c of ["awk", "grep", "cut", "cat", "sed", "seq", "printf", "chmod", "tr", "dirname", "mktemp", "rm", "python3", "base64"]) {
+  if (opts.missing?.length) for (const c of ["awk", "grep", "cut", "cat", "sed", "seq", "printf", "chmod", "tr", "dirname", "mktemp", "rm", "base64"]) {
     const real = execFileSync("bash", ["-c", `command -v ${c} || true`]).toString().trim();
     if (real) { writeFileSync(path.join(bin, c), `#!/bin/bash\nexec ${real} "$@"\n`); chmodSync(path.join(bin, c), 0o755); }
   }
