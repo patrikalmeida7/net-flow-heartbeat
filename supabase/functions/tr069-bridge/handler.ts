@@ -32,8 +32,10 @@ export const Body = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("set_wifi"), device_id: id, request_id: id, band: z.enum(["2g", "5g"]),
     ssid: z.string().trim().min(1).max(32).optional(), password: z.string().min(8).max(63).optional(),
-  }).refine((v) => v.ssid || v.password, "Informe SSID ou senha"),
-]);
+  }),
+]).superRefine((v, ctx) => {
+  if (v.action === "set_wifi" && !v.ssid && !v.password) ctx.addIssue({ code: "custom", message: "Informe SSID ou senha" });
+});
 
 const BASE_PROJ = ["_id", "_lastInform", "_deviceId", "_tags",
   "InternetGatewayDevice.DeviceInfo.SoftwareVersion", "InternetGatewayDevice.DeviceInfo.ModelName",
