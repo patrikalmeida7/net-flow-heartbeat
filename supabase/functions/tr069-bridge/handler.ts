@@ -136,7 +136,7 @@ export function createHandler(deps: Deps) {
 
       if (!srv.enabled && b.action !== "task_status") return json({ error: "ACS desativado" }, 400);
       const urlOk = nbiUrlAllowed(String(srv.nbi_url), !!srv.allow_insecure_http);
-      if (!urlOk.ok) return json({ error: urlOk.reason }, 400);
+      if (!urlOk.ok) return json({ error: (urlOk as { reason: string }).reason }, 400);
 
       // Credentials: new store, with one-time lazy migration from the deprecated column.
       let pwd: string | null = null;
@@ -233,7 +233,7 @@ export function createHandler(deps: Deps) {
         if (prev) return json({ ok: prev.status !== "failed", status: prev.status, message: prev.confirmation ?? prev.error, duplicate: true });
         const profile = matchProfile(device as DeviceLike, profiles);
         const chk = canCommand(device as DeviceLike, profile, kind, b.action === "set_wifi" ? { ssid: !!b.ssid, password: !!b.password } : undefined);
-        if (!chk.ok) { await audit(b.action, "blocked", { reason: chk.reason }); return json({ error: chk.reason }, 400); }
+        if (!chk.ok) { const why = (chk as { reason: string }).reason; await audit(b.action, "blocked", { reason: why }); return json({ error: why }, 400); }
         const snap = snapshotFor(profile!, band, device.id);
         const ssid = b.action === "set_wifi" ? b.ssid ?? null : null;
         const pwChanged = b.action === "set_wifi" && !!b.password;
