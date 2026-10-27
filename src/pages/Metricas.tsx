@@ -48,34 +48,29 @@ async function fetchInterfaces() {
   };
 }
 
+// Server-bucketed SNMP series (avg + max per bucket). Missing buckets stay absent (= "Sem dados"), never 0.
+type Bucket = { bucket_at: string; kind: string; avg_value: number; max_value: number };
+const toSamples = (rows: Bucket[] | null) =>
+  (rows ?? []).map((r) => ({ collected_at: r.bucket_at, kind: r.kind, value: r.avg_value, max: r.max_value }));
+
 async function fetchInterfaceSeries(ifaceId: string) {
   const since = new Date(Date.now() - 30 * 60_000).toISOString();
-  const { data, error } = await supabase
-    .from("metric_samples")
-    .select("collected_at, kind, value")
-    .eq("interface_id", ifaceId)
-    .in("kind", ["if_in_bps", "if_out_bps"])
-    .gte("collected_at", since)
-    .order("collected_at", { ascending: true })
-    .limit(2000);
+  const { data, error } = await supabase.rpc("metric_series", {
+    _concentrador: null, _rbs: null, _interface: ifaceId,
+    _kinds: ["if_in_bps", "if_out_bps"], _since: since, _points: 60,
+  });
   if (error) throw error;
-  return (data ?? []) as Sample[];
+  return toSamples(data as Bucket[]);
 }
 
 async function fetchDeviceSeries(opts: { concentrador_id?: string; rbs_id?: string }) {
   const since = new Date(Date.now() - 60 * 60_000).toISOString();
-  let q = supabase
-    .from("metric_samples")
-    .select("collected_at, kind, value")
-    .eq("source","snmp").in("kind", ["cpu_load", "memory_used_pct"])
-    .gte("collected_at", since)
-    .order("collected_at", { ascending: true })
-    .limit(2000);
-  if (opts.concentrador_id) q = q.eq("concentrador_id", opts.concentrador_id);
-  if (opts.rbs_id) q = q.eq("rbs_id", opts.rbs_id);
-  const { data, error } = await q;
+  const { data, error } = await supabase.rpc("metric_series", {
+    _concentrador: opts.concentrador_id ?? null, _rbs: opts.rbs_id ?? null, _interface: null,
+    _kinds: ["cpu_load", "memory_used_pct"], _since: since, _points: 120,
+  });
   if (error) throw error;
-  return (data ?? []) as Sample[];
+  return toSamples(data as Bucket[]);
 }
 
 export default function Metricas() {
@@ -163,8 +158,10 @@ export default function Metricas() {
   }, [deviceSamples]);
 
   const last = trafficSeries[trafficSeries.length - 1];
+  // Picos vêm do máximo de cada intervalo (não da média), para não achatar rajadas.
   const peakOf = (k: "in_bps" | "out_bps") => {
-    const v = trafficSeries.map((r) => r[k]).filter((x): x is number => x != null);
+    const kind = k === "in_bps" ? "if_in_bps" : "if_out_bps";
+    const v = (ifaceSamples ?? []).filter((s) => s.kind === kind).map((s) => s.max);
     return v.length ? Math.max(...v) : null;
   };
   const peakIn = peakOf("in_bps");
