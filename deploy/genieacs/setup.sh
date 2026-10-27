@@ -1,46 +1,97 @@
 #!/usr/bin/env bash
-# Instala o GenieACS na VPS sem tocar em outros containers, arquivos ou regras de firewall.
-# Uso: sudo bash setup.sh   (não execute sem revisar; aborta em qualquer conflito)
+# GenieACS para o NOC-ISP. Não altera firewall, outros containers nem arquivos fora desta pasta.
+#   sudo bash setup.sh install     -> instala FECHADO (só 127.0.0.1) e configura/testa autenticação CPE→ACS
+#   sudo bash setup.sh verify      -> testa autenticação dos modems e saúde dos serviços
+#   sudo bash setup.sh open-cwmp   -> re-testa a autenticação e só então publica 7547 para os modems
 set -euo pipefail
 cd "$(dirname "$0")"
-command -v docker >/dev/null || { echo "Docker não encontrado"; exit 1; }
-docker compose version >/dev/null 2>&1 || { echo "docker compose v2 não encontrado"; exit 1; }
 PROJECT=noc-genieacs
+CMD="${1:-install}"
+die() { echo "ERRO: $*" >&2; exit 1; }
 
-# Já instalado? Não recria nem sobrescreve.
-if docker compose -p "$PROJECT" ps -q 2>/dev/null | grep -q .; then
-  echo "GenieACS ($PROJECT) já existe. Nada foi alterado. Para atualizar, revise o compose e rode: docker compose -p $PROJECT up -d"
-  exit 0
-fi
+need() { command -v "$1" >/dev/null 2>&1 || die "dependência ausente: $1. Instale e rode de novo. Nada foi alterado."; }
+check_deps() {
+  for c in docker openssl curl ss awk grep; do need "$c"; done
+  docker compose version >/dev/null 2>&1 || die "docker compose v2 não encontrado. Nada foi alterado."
+  docker info >/dev/null 2>&1 || die "não foi possível falar com o Docker (permissão/daemon). Nada foi alterado."
+}
 
-# Conflito de portas: aborta com orientação.
-for p in 7547 7558 3000; do
-  if ss -ltnH "( sport = :$p )" 2>/dev/null | grep -q .; then
-    echo "ERRO: porta $p já está em uso por outro serviço:"; ss -ltnp "( sport = :$p )" || true
-    echo "Libere a porta ou ajuste o mapeamento em docker-compose.yml antes de continuar. Nada foi alterado."
-    exit 1
-  fi
-done
+existing() {
+  docker ps -a --filter "label=com.docker.compose.project=$PROJECT" -q | grep -q . && return 0
+  docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" | grep -q . && return 0
+  return 1
+}
 
-# Arquivos existentes nunca são sobrescritos.
-umask 077
-[ -f .env ] || echo "GENIEACS_UI_JWT_SECRET=$(openssl rand -hex 32)" > .env
-if [ ! -f nbi.htpasswd ]; then
-  NBI_USER=noc
-  NBI_PASS=$(openssl rand -base64 24 | tr -d '/+=')
-  printf '%s:%s\n' "$NBI_USER" "$(openssl passwd -apr1 "$NBI_PASS")" > nbi.htpasswd
-  chmod 644 nbi.htpasswd
-  echo "==== GUARDE (mostrado só agora; não fica salvo em texto) ===="
-  echo "Usuário NBI: $NBI_USER"
-  echo "Senha NBI:   $NBI_PASS"
-  echo "============================================================="
-fi
+check_ports() {
+  local out
+  for p in 7547 7558 3000; do
+    out=$(ss -ltnH "( sport = :$p )" 2>&1) || die "não foi possível verificar a porta $p (ss falhou). Nada foi alterado."
+    [ -z "$out" ] || die "porta $p já está em uso: $out. Libere-a ou ajuste docker-compose.yml. Nada foi alterado."
+  done
+}
 
-docker compose -p "$PROJECT" up -d
-IP=$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')
-echo
-echo "No NOC-ISP → Modems / ONTs → Adicionar ACS:"
-echo "  URL da API NBI: http://$IP:7558   (prefira HTTPS via proxy/domínio — ver README)"
-echo "  URL CWMP (modems): http://$IP:7547"
-echo "Firewall NÃO foi alterado. Libere manualmente TCP 7547 (modems) e 7558 (só para o NOC, se possível)."
-echo "Configure a autenticação CPE→ACS (README, seção 'Autenticação dos modems') ANTES de apontar modems."
+wait_healthy() {
+  local svc st i
+  for svc in mongo genieacs nbi-proxy; do
+    for i in $(seq 1 60); do
+      st=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose -p "$PROJECT" ps -q "$svc")" 2>/dev/null || echo none)
+      [ "$st" = healthy ] && break
+      [ "$i" = 60 ] && die "serviço $svc não ficou saudável (status: $st). Veja: docker compose -p $PROJECT logs $svc"
+      sleep 3
+    done
+  done
+}
+
+cwmp_code() { # $1 = "user:pass" ou vazio
+  local a=(); [ -n "${1:-}" ] && a=(-u "$1")
+  curl -s -o /dev/null -w '%{http_code}' -m 10 "${a[@]}" -X POST -H 'Content-Type: text/xml' --data '' http://127.0.0.1:7547/ || echo 000
+}
+
+verify_auth() {
+  [ -f cwmp.credentials ] || die "cwmp.credentials ausente: rode install primeiro."
+  local cred; cred=$(cat cwmp.credentials)
+  [ "$(cwmp_code)" = 401 ] || die "ACS aceitou modem SEM autenticação. Não libere 7547."
+  [ "$(cwmp_code "noc-invalido:errado")" = 401 ] || die "ACS aceitou credencial INVÁLIDA. Não libere 7547."
+  [ "$(cwmp_code "$cred")" != 401 ] || die "credencial correta foi recusada: revise cwmp.auth."
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -m 10 http://127.0.0.1:7558/devices)" = 401 ] || die "API NBI respondeu sem senha."
+  echo "Autenticação CPE→ACS e NBI verificadas."
+}
+
+case "$CMD" in
+  install)
+    check_deps
+    if existing; then echo "Instalação existente de $PROJECT (containers ou volumes, inclusive parados). Nada foi alterado. Use verify ou consulte o README para atualizar."; exit 0; fi
+    check_ports
+    umask 077
+    [ -f .env ] || printf 'GENIEACS_UI_JWT_SECRET=%s\nCWMP_BIND=127.0.0.1\n' "$(openssl rand -hex 32)" > .env
+    grep -q '^CWMP_BIND=' .env || echo 'CWMP_BIND=127.0.0.1' >> .env
+    if [ ! -f nbi.htpasswd ]; then
+      NBI_PASS=$(openssl rand -base64 24 | tr -d '/+=')
+      printf 'noc:%s\n' "$(openssl passwd -apr1 "$NBI_PASS")" > nbi.htpasswd; chmod 644 nbi.htpasswd
+      echo "== Senha da API NBI (mostrada só agora): usuário noc / senha $NBI_PASS =="
+    fi
+    if [ ! -f cwmp.credentials ]; then
+      printf 'cpe-%s:%s' "$(openssl rand -hex 3)" "$(openssl rand -base64 18 | tr -d '/+=')" > cwmp.credentials
+    fi
+    docker compose -p "$PROJECT" up -d
+    wait_healthy
+    U=$(cut -d: -f1 cwmp.credentials); P=$(cut -d: -f2- cwmp.credentials)
+    docker compose -p "$PROJECT" exec -T mongo mongosh --quiet genieacs --eval \
+      "db.config.updateOne({_id:'cwmp.auth'},{\$set:{value:'AUTH(\"$U\", \"$P\")'}},{upsert:true})" >/dev/null
+    sleep 5
+    verify_auth
+    echo
+    echo "Instalado FECHADO: 7547/7558 só em 127.0.0.1. Credencial dos modems em ./cwmp.credentials (protegido)."
+    echo "Próximos passos (README): HTTPS para a NBI e, após configurar 1 modem piloto, 'setup.sh open-cwmp'."
+    ;;
+  verify) check_deps; wait_healthy; verify_auth ;;
+  open-cwmp)
+    check_deps; wait_healthy; verify_auth
+    [ "${CONFIRM_OPEN:-}" = yes ] || die "defina CONFIRM_OPEN=yes para publicar 7547 (firewall continua sob sua responsabilidade)."
+    sed -i 's/^CWMP_BIND=.*/CWMP_BIND=0.0.0.0/' .env
+    docker compose -p "$PROJECT" up -d genieacs
+    wait_healthy; verify_auth
+    echo "CWMP 7547 publicado. Libere no firewall apenas se necessário. Para fechar: CWMP_BIND=127.0.0.1 no .env e 'docker compose -p $PROJECT up -d genieacs'."
+    ;;
+  *) die "uso: setup.sh [install|verify|open-cwmp]" ;;
+esac

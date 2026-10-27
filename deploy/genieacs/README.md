@@ -1,35 +1,53 @@
 # GenieACS para o NOC-ISP
 
 Piloto: **uma instância ACS exclusiva por empresa** (Texas Fibra). Tags/filtros do GenieACS não isolam empresas.
+A aprovação de equipamentos no NOC **não substitui** a autenticação na entrada do ACS.
 
-## Instalação (revisar antes; nada é feito automaticamente pelo NOC)
-1. Copie esta pasta para a VPS e rode `sudo bash setup.sh`.
-   - Aborta se as portas 7547/7558/3000 estiverem em uso ou se o projeto `noc-genieacs` já existir.
-   - Nunca sobrescreve `.env`/`nbi.htpasswd` e **não altera firewall** nem outros containers (noc-agent, Evolution…).
-2. Anote usuário/senha NBI e cadastre em **Modems / ONTs → Adicionar**.
-3. Crie um **perfil validado** para cada modelo/firmware antes de enviar comandos (sem perfil, tudo fica bloqueado).
-4. Nos modems: ACS URL `http://IP_DA_VPS:7547`, usuário/senha CWMP (abaixo), Periodic Inform 300–3600s.
-5. **Sincronizar**, aprovar cada equipamento e só então usar Wi-Fi/Reinício.
+## 1. Instalação fechada
+```
+sudo bash setup.sh install
+```
+- Verifica dependências (docker, compose v2, openssl, curl, ss) e conflitos de porta 7547/7558/3000 **antes** de criar qualquer arquivo; aborta se não conseguir verificar.
+- Detecta instalação existente (containers, inclusive parados, ou volumes do projeto `noc-genieacs`) e sai sem alterar nada.
+- Nunca sobrescreve `.env`, `nbi.htpasswd`, `cwmp.credentials`. Não altera firewall nem outros serviços.
+- Sobe tudo **só em 127.0.0.1**, aguarda healthchecks, grava `cwmp.auth` exigindo usuário/senha e testa:
+  sem credencial → 401, credencial inválida → 401, credencial correta → aceita, NBI sem senha → 401.
+  Só então informa sucesso.
+- MongoDB e a NBI original (7557) nunca são publicados. UI (3000) só local (túnel SSH).
 
-## Versões e dados
-- Imagens fixadas: `mongo:6.0.16`, `drumsergio/genieacs:1.2.13`, `nginx:1.27.2-alpine`. Atualize só trocando a tag conscientemente.
-- Volumes persistentes: `genieacs-mongo` (banco), `genieacs-ext`, `genieacs-logs`.
+## 2. API NBI por HTTPS
+O NOC recusa NBI em HTTP. Publique o proxy local `127.0.0.1:7558` atrás de HTTPS, ex. Caddy:
+```
+acs-api.suaempresa.com.br {
+  reverse_proxy 127.0.0.1:7558
+}
+```
+Restrinja o acesso no firewall quando possível. Cadastre no NOC: `https://acs-api.suaempresa.com.br`, usuário `noc` e a senha mostrada na instalação.
+Exceção de laboratório (HTTP) existe por servidor, desligada por padrão, e aparece marcada na tela.
 
-## Backup / restauração
+## 3. Modem piloto e liberação do CWMP
+1. Configure **um** modem piloto: ACS URL `http://IP:7547` (ou `https://` atrás de proxy TLS, se o firmware suportar), usuário/senha de `cwmp.credentials`, Periodic Inform 300–3600s.
+2. Liberação explícita, que re-testa a autenticação antes de publicar:
+   ```
+   sudo CONFIRM_OPEN=yes bash setup.sh open-cwmp
+   ```
+   Firewall continua sob sua responsabilidade. Para fechar: `CWMP_BIND=127.0.0.1` no `.env` e `docker compose -p noc-genieacs up -d genieacs`.
+3. No NOC: Sincronizar, aprovar o piloto, criar perfil com **Equipamento piloto** = ID do piloto (não validado). Isso libera comandos só para ele.
+4. Após testar no piloto, marque o perfil como **Validado** para liberar os demais equipamentos aprovados do mesmo modelo/firmware.
+
+## Versões, atualização, backup
+- Imagens fixadas: `mongo:6.0.16`, `drumsergio/genieacs:1.2.13`, `nginx:1.27.2-alpine`. Logs com rotação (10 MB × 5).
+- Atualizar: faça backup, troque a tag no compose, `docker compose -p noc-genieacs up -d`, depois `setup.sh verify`.
+- Backup / restauração:
 ```
 docker compose -p noc-genieacs exec -T mongo mongodump --archive --gzip --db genieacs > genieacs-$(date +%F).gz
 docker compose -p noc-genieacs exec -T mongo mongorestore --archive --gzip --drop < genieacs-AAAA-MM-DD.gz
 ```
-Guarde também `.env` e `nbi.htpasswd` (fora do servidor, com acesso restrito).
+Guarde `.env`, `nbi.htpasswd` e `cwmp.credentials` fora do servidor, com acesso restrito.
 
-## Segurança
-- **NBI** (7557) nunca é exposta: só via nginx 7558 com Basic Auth. Restrinja 7558 no firewall e prefira HTTPS (proxy reverso com certificado, ex. Caddy/Certbot, apontando para 7558).
-- **UI do GenieACS** (3000) fica só em 127.0.0.1; acesse por túnel SSH.
-- **Autenticação dos modems (CPE→ACS)**: por padrão o GenieACS aceita qualquer CPE. Antes de apontar modems, defina na UI do GenieACS (Admin → Config) `cwmp.auth` exigindo usuário/senha, ex.: `AUTH("acs-texas", "SENHA_FORTE")`, e configure a mesma credencial nos modems (ou via OLT/provisionamento). Para CWMP em HTTPS, publique 7547 atrás de proxy TLS e use `https://` na ACS URL (verifique suporte do firmware).
-- Mesmo autenticados, equipamentos novos entram **não aprovados** no NOC e não recebem comandos.
-
-## Comportamento
-- O modem inicia a conexão; a nuvem não precisa alcançar o IP privado dele.
-- Sem Connection Request alcançável (NAT/CGNAT), a tarefa fica **pendente** até o próximo Inform.
-- Estados: solicitada → pendente → concluída (confirmada por leitura) / aplicada sem confirmação / falhou. Senha Wi-Fi é somente escrita: nunca aparece como "confirmada".
-- Reset de fábrica e firmware não são oferecidos.
+## Comportamento das tarefas
+Solicitada → Pendente (próxima sessão) / Resultado desconhecido (timeout após envio: confira no ACS antes de repetir) →
+Concluída (SSID lido do equipamento **depois** do comando) / Aplicada sem confirmação / Falhou.
+Senha Wi-Fi é somente escrita: nunca aparece como confirmada. O GenieACS não garante execução única; o NOC evita reenvio
+pelo mesmo identificador da solicitação e bloqueia nova tarefa do mesmo tipo enquanto outra estiver aberta.
+Reset de fábrica e firmware não são oferecidos.

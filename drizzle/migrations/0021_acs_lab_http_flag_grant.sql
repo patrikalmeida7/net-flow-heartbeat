@@ -1,0 +1,1 @@
+GRANT INSERT (allow_insecure_http), UPDATE (allow_insecure_http) ON public.acs_servers TO authenticated;
