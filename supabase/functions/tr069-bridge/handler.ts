@@ -306,6 +306,7 @@ export function createHandler(deps: Deps) {
       // deno-lint-ignore no-explicit-any
       const checkUnconfirmed = async (t: any) => {
         const kind = verifiable(t);
+        if (process.env.DBG) console.log("chk", kind, JSON.stringify(t));
         if (!kind) return; // write-only password: stays unconfirmed, no further reads
         const snap = t.profile_snapshot as Snapshot;
         // deno-lint-ignore no-explicit-any
