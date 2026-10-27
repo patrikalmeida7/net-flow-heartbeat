@@ -125,7 +125,7 @@ export default function Dashboard() {
               <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 Conexões PPPoE — últimas 24 horas
               </h2>
-              <p className="text-xs text-muted-foreground">Fotografias API de 6h; pontos antigos preservados, sem inferir quedas</p>
+              <p className="text-xs text-muted-foreground">Leituras da API RouterOS; pontos antigos preservados, sem inferir quedas</p>
             </div>
             <Activity className="h-4 w-4 text-primary" />
           </div>

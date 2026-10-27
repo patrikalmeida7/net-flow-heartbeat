@@ -212,7 +212,6 @@ describe("bridge: sincronização retomável", () => {
 
 describe("bridge: migração da senha antiga", () => {
   const legacyOnly = () => { db.acs_servers[0].password_encrypted = "antiga"; };
-  const authOf = () => calls.map((c) => c).length; void authOf;
   it("falha na gravação cifrada preserva a credencial antiga", async () => {
     legacyOnly(); failOn.add("acs_server_secrets:upsert");
     const r = await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });
@@ -223,7 +222,7 @@ describe("bridge: migração da senha antiga", () => {
   it("falha na releitura também preserva a antiga; nova chamada retoma e conclui", async () => {
     legacyOnly();
     let n = 0; onOp = (k) => { if (k === "acs_server_secrets:select" && ++n === 2) failOn.add("acs_server_secrets:select"); };
-    expect((await call(mk(), "Bearer A", { action: "test", server_id: SRV_A })).status).toBe(500);
+    expect((await call(mk(), "Bearer A", { action: "test", server_id: SRV_A })).status).toBe(200); // usa a antiga
     expect(db.acs_servers[0].password_encrypted).toBe("antiga");
     failOn.clear(); onOp = null;
     await call(mk(), "Bearer A", { action: "test", server_id: SRV_A });

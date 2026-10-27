@@ -96,7 +96,7 @@ export function recoveryCandidates(events: UpEvent[], concs: ConcState[], baseli
     lines.push(`Início da indisponibilidade: ${since ? fmtBahia(since) : "desconhecido"}`);
     lines.push(`Fim: ${fmtBahia(e.created_at)}`);
     if (since) lines.push(`Duração: ${fmtDur(t - new Date(since).getTime())}`);
-    lines.push("Clientes atuais: não verificados (PPPoE é fotografia API de 6h).");
+    lines.push("Clientes atuais: não verificados nesta mensagem.");
     out.push({ dedupe: `up:${e.id}`, concentrador_id: c.id, text: lines.join("\n") });
   }
   return out;

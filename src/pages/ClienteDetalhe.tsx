@@ -113,7 +113,7 @@ export default function ClienteDetalhe() {
           <Field k="Upload (sessão)" v={s?.bytes_out != null ? formatBytes(s.bytes_out) : "Sem dados"} />
           <Field k="Registros de sessão" v={st ? String(st.sessions) : null} />
         </div>
-        {stale && <p className="mt-3 text-sm text-status-warning">Fotografia API a cada 6h; estado atual e quedas entre sincronizações indisponíveis.</p>}
+        {stale && <p className="mt-3 text-sm text-status-warning">Última leitura da API desatualizada; estado atual deste cliente não confirmado.</p>}
         {instavel && <p className="mt-3 text-sm font-medium text-status-offline">Histórico: 3 ou mais quedas individuais registradas. Instabilidade atual não é inferida das fotografias.</p>}
       </Card>
 
