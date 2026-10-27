@@ -36,9 +36,10 @@ function ServerForm({ onDone, server }: { onDone: () => void; server?: Server })
   const save = async () => {
     const { data: org } = await supabase.from("organization_members").select("organization_id").limit(1).maybeSingle();
     if (!server?.organization_id && !org?.organization_id) return toast.error("Sua conta não pertence a nenhuma empresa");
-    const row = { nome: f.nome, nbi_url: f.nbi_url.trim(), cwmp_url: f.cwmp_url.trim() || null, username: f.username.trim() || null, allow_insecure_http: f.allow_insecure_http, organization_id: server?.organization_id ?? org?.organization_id ?? null };
+    // UPDATE só pode enviar colunas com GRANT UPDATE; a empresa nunca muda na edição.
+    const row = { nome: f.nome, nbi_url: f.nbi_url.trim(), cwmp_url: f.cwmp_url.trim() || null, username: f.username.trim() || null, allow_insecure_http: f.allow_insecure_http };
     const res = server ? await supabase.from("acs_servers").update(row).eq("id", server.id).select("id").single()
-      : await supabase.from("acs_servers").insert(row).select("id").single();
+      : await supabase.from("acs_servers").insert({ ...row, organization_id: org?.organization_id ?? null }).select("id").single();
     if (res.error) return toast.error(res.error.message);
     if (f.password) {
       try { await bridge({ action: "set_password", server_id: res.data.id, password: f.password }); }
