@@ -3,6 +3,7 @@
 // Autenticação exclusivamente pelo token individual do agente e sua empresa.
 
 import { z } from "npm:zod@3";
+import { sameOrganization } from "../_shared/security.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
     if (targetErr) throw targetErr;
     if (!target) return json({error:"Equipamento não cadastrado"},404);
     const {data: assigned,error: assignmentError} = await supabase.from("mikrotik_api_credentials").select("id,organization_id").eq("agent_id",agentId).eq("concentrador_id",target.id).eq("enabled",true).maybeSingle();
-    if (assignmentError || !assigned || assigned.organization_id !== agentOrg || target.organization_id !== agentOrg) return json({error:"Equipamento não atribuído ao agente/empresa"},403);
+    if (assignmentError || !assigned || !sameOrganization(agentOrg, assigned.organization_id, target.organization_id)) return json({error:"Equipamento não atribuído ao agente/empresa"},403);
     const concentradorId = target.id;
     const failure = c.status === "offline" || !!body.error;
     const {error: apiErr} = await supabase.from("concentradores").update({

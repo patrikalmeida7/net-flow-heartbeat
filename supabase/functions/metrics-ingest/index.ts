@@ -5,6 +5,7 @@
 // - Calcula bps a partir de delta de octets quando aplicável.
 // - Insere amostras em metric_samples (raw, retenção 7 dias).
 import { z } from "npm:zod@3";
+import { sameOrganization } from "../_shared/security.ts";
 import { corsHeaders as sdkCorsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
@@ -142,7 +143,7 @@ Deno.serve(async (req) => {
       const {data: assignment,error: assignmentErr}=await supabase.from(table).select("id,organization_id").eq("agent_id",agentId).match(target).eq("enabled",true).maybeSingle();
       const {data: deviceOrg}=await supabase.from(concentrador_id ? "concentradores":"rbs").select("organization_id").eq("id",concentrador_id ?? rbs_id).maybeSingle();
       const {data: owner}=await supabase.from("agents").select("organization_id").eq("id",agentId).maybeSingle();
-      if(assignmentErr || !assignment || assignment.organization_id !== owner?.organization_id || deviceOrg?.organization_id !== owner?.organization_id) {errors.push("Alvo não autorizado para este agente/empresa");continue;}
+      if(assignmentErr || !assignment || !deviceOrg || !owner || !sameOrganization(owner.organization_id, assignment.organization_id, deviceOrg.organization_id)) {errors.push("Alvo não autorizado para este agente/empresa");continue;}
     }
     if(isApi) {
       if (Math.abs(Date.now()-Date.parse(collectedAt)) > 120000) {errors.push("Stale collected_at API");continue;}
