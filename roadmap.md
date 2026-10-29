@@ -15,3 +15,8 @@
 - [ ] Dashboards: contagem de clientes via SNMP só após OID validado
 
 - [x] Analisar desempenho do banco (CPU/memória/disco) e sugerir otimizações antes de redimensionar
+
+- [x] Segurança: revogar leitura das colunas secretas e execução de purge; VPN somente admin; ingestão por agente/empresa; run exige segredo de cron
+- [ ] Segurança: aplicar AES-GCM e re-cifrar credenciais atuais (bloqueado: ferramenta recusou acesso a secrets)
+- [ ] Segurança: configurar segredo no cron existente (mesmo bloqueio; execução automática agora recusa chamada sem segredo)
+- [ ] Compatibilidade: consultas atuais com select("*") em VPN/Relatórios precisam de seleção explícita após revogação (bloqueado: pedido proíbe alterar páginas)

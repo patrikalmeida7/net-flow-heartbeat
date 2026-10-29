@@ -176,6 +176,13 @@
       "when": 1793120548692,
       "tag": "0024_rls_initplan_interfaces_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793240232742,
+      "tag": "0025_credential_permissions_hardening",
+      "breakpoints": true
     }
   ]
 }
