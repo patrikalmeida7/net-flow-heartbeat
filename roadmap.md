@@ -15,3 +15,5 @@
 - [ ] Dashboards: contagem de clientes via SNMP só após OID validado
 
 - [x] Analisar desempenho do banco (CPU/memória/disco) e sugerir otimizações antes de redimensionar
+
+- [ ] Segurança: AES-GCM e migração de credenciais, privilégios mínimos, cron autenticado, ingestão por agente/empresa
