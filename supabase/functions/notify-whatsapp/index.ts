@@ -9,6 +9,7 @@ import {
   recoveryCandidates, healthSummary, fmtBahia, FRESH_MS, type UpEvent, type ConcState,
 } from "./logic.ts";
 import { dailyHistoryText } from "./daily.ts";
+import { secretMatches } from "../_shared/security.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const json = (b: unknown, s = 200) =>
@@ -189,7 +190,9 @@ Deno.serve(async (req) => {
     const action = String(body.action ?? "run");
     if (!["run", "test", "daily", "daily_history_preview", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test", "health_preview", "health_send", "simulate"].includes(action)) return json({ error: "ação inválida" }, 400);
 
-    if (action !== "run") {
+    if (action === "run") {
+      if (!await secretMatches(req.headers.get("x-cron-secret"), Deno.env.get("NOTIFY_CRON_SECRET"))) return json({ error: "cron não autorizado" }, 401);
+    } else {
       const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
       const { data: u } = await sb.auth.getUser(token);
       if (!u?.user) return json({ error: "não autenticado" }, 401);

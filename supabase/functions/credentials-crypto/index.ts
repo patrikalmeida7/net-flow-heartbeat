@@ -1,6 +1,6 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { z } from "npm:zod@3";
-import { encryptSecret, decryptSecret } from "../tr069-bridge/logic.ts";
+import { encryptSecret, decryptSecret } from "../_shared/credential-cipher.ts";
 import { secretMatches } from "../_shared/security.ts";
 const schema = z.object({ operation: z.enum(["encrypt", "decrypt"]), value: z.string().max(1048576), aad: z.string().regex(/^(mikrotik_api_credentials|device_credentials|vpn_connections|vpn_clients):[0-9a-f-]{36}:(password|config|wg_private_key|wg_preshared_key|ovpn_config|ovpn_password)$/) });
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {status, headers:{...corsHeaders,"Content-Type":"application/json"}});

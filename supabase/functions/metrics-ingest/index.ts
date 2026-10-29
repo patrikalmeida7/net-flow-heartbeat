@@ -69,20 +69,20 @@ Deno.serve(async (req) => {
   const serviceUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!serviceUrl || !serviceKey) return new Response(JSON.stringify({error:"Service configuration missing"}), {status:500,headers:{...corsHeaders,"Content-Type":"application/json"}});
-  const expected = Deno.env.get("AGENT_INGEST_TOKEN");
   const bearer = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1];
   const got = (req.headers.get("x-agent-token") || bearer || "").trim();
   let agentId: string | null = null;
-  let authorized = !!got && !!expected && got === expected;
-  if (!authorized && got) {
+  let agentOrg: string | null = null;
+  let authorized = false;
+  if (got) {
     const sbAuth = createClient(serviceUrl, serviceKey, { auth: { persistSession: false } });
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(got));
     const hash = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const { data: agent } = await sbAuth.from("agents").select("id, enabled").eq("token_hash", hash).maybeSingle();
+    const { data: agent } = await sbAuth.from("agents").select("id, enabled, organization_id").eq("token_hash", hash).maybeSingle();
     authorized = !!agent?.enabled;
-    if (agent?.enabled) agentId = agent.id;
+    if (agent?.enabled) { agentId = agent.id; agentOrg = agent.organization_id; }
   }
-  if (!authorized) {
+  if (!authorized || !agentId) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -114,8 +114,8 @@ Deno.serve(async (req) => {
 
   // Pré-carrega mapas host → id
   const [{ data: concs }, { data: rbsList }] = await Promise.all([
-    supabase.from("concentradores").select("id, host"),
-    supabase.from("rbs").select("id, host"),
+    agentOrg === null ? supabase.from("concentradores").select("id, host").is("organization_id",null) : supabase.from("concentradores").select("id, host").eq("organization_id",agentOrg),
+    agentOrg === null ? supabase.from("rbs").select("id, host").is("organization_id",null) : supabase.from("rbs").select("id, host").eq("organization_id",agentOrg),
   ]);
   const concByHost = new Map((concs ?? []).map((c) => [c.host, c.id]));
   const rbsByHost = new Map((rbsList ?? []).filter((r) => r.host).map((r) => [r.host as string, r.id]));

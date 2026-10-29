@@ -1,6 +1,6 @@
 // Edge Function: agent-ingest
 // Recebe dados do agente coletor local (MikroTik) e grava no banco usando service role.
-// Autenticação: header x-agent-token deve bater com o secret AGENT_INGEST_TOKEN.
+// Autenticação exclusivamente pelo token individual do agente e sua empresa.
 
 import { z } from "npm:zod@3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
@@ -51,14 +51,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const expectedToken = Deno.env.get("AGENT_INGEST_TOKEN");
     const bearer = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1];
     const providedToken = (req.headers.get("x-agent-token") || bearer || "").trim();
     if (!providedToken) return json({ error: "Unauthorized" }, 401);
 
-    let authorized = !!expectedToken && providedToken === expectedToken;
+    let authorized = false;
     let agentId: string | null = null;
-    if (!authorized) {
+    let agentOrg: string | null = null;
+    {
       const sbAuth = createClient(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -66,16 +66,17 @@ Deno.serve(async (req) => {
       );
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(providedToken));
       const hash = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-      const { data: agent } = await sbAuth.from("agents").select("id, enabled")
+      const { data: agent } = await sbAuth.from("agents").select("id, enabled, organization_id")
         .eq("token_hash", hash).maybeSingle();
       if (agent?.enabled) {
         authorized = true;
         agentId = agent.id;
+        agentOrg = agent.organization_id;
         await sbAuth.from("agents").update({ last_seen_at: new Date().toISOString() }).eq("id", agent.id);
       }
     }
     if (!authorized) return json({ error: "Unauthorized" }, 401);
-    void agentId;
+    if (!agentId) return json({ error: "Unauthorized" }, 401);
 
     const parsed=z.object({concentrador:z.object({host:z.string().min(1).max(255),status:z.enum(["online","warning","offline","unknown"]).optional()}).passthrough(),sessions:z.array(z.object({username:z.string().min(1).max(255),online:z.boolean(),bytes_in:z.number().finite().nonnegative().nullable().optional(),bytes_out:z.number().finite().nonnegative().nullable().optional()}).passthrough()).max(100000),concentrador_id:z.string().uuid().optional(),source:z.string().optional(),error:z.string().max(1000).optional(),collected_at:z.string().datetime().optional()}).safeParse(await req.json());
     if(!parsed.success) return json({error:parsed.error.flatten()},400);
@@ -98,16 +99,13 @@ Deno.serve(async (req) => {
 
     // All API agents (including legacy transition) are snapshots only; never infer events.
     let query = supabase.from("concentradores").select("id,organization_id");
+    query = agentOrg === null ? query.is("organization_id", null) : query.eq("organization_id", agentOrg);
     query = body.concentrador_id ? query.eq("id",body.concentrador_id) : query.eq("host",c.host);
     const {data: target,error: targetErr} = await query.maybeSingle();
     if (targetErr) throw targetErr;
     if (!target) return json({error:"Equipamento não cadastrado"},404);
-    if (agentId) {
-      const {data: assigned} = await supabase.from("mikrotik_api_credentials").select("id").eq("agent_id",agentId).eq("concentrador_id",target.id).eq("organization_id",target.organization_id ?? "00000000-0000-0000-0000-000000000000").maybeSingle();
-      // Null-organization legacy assignments are checked separately without widening scope.
-      const {data: legacy} = target.organization_id === null ? await supabase.from("mikrotik_api_credentials").select("id").eq("agent_id",agentId).eq("concentrador_id",target.id).is("organization_id",null).maybeSingle() : {data:null};
-      if (!assigned && !legacy) return json({error:"Equipamento não atribuído ao agente"},403);
-    }
+    const {data: assigned,error: assignmentError} = await supabase.from("mikrotik_api_credentials").select("id,organization_id").eq("agent_id",agentId).eq("concentrador_id",target.id).eq("enabled",true).maybeSingle();
+    if (assignmentError || !assigned || assigned.organization_id !== agentOrg || target.organization_id !== agentOrg) return json({error:"Equipamento não atribuído ao agente/empresa"},403);
     const concentradorId = target.id;
     const failure = c.status === "offline" || !!body.error;
     const {error: apiErr} = await supabase.from("concentradores").update({
