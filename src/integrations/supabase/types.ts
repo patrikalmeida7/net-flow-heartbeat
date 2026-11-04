@@ -952,6 +952,102 @@ export type Database = {
         }
         Relationships: []
       }
+      maintenance_runs: {
+        Row: {
+          finished_at: string | null
+          id: number
+          job: string
+          result: Json | null
+          started_at: string
+        }
+        Insert: {
+          finished_at?: string | null
+          id?: number
+          job: string
+          result?: Json | null
+          started_at?: string
+        }
+        Update: {
+          finished_at?: string | null
+          id?: number
+          job?: string
+          result?: Json | null
+          started_at?: string
+        }
+        Relationships: []
+      }
+      metric_daily: {
+        Row: {
+          avg_value: number
+          bucket_at: string
+          concentrador_id: string | null
+          interface_id: string | null
+          kind: Database["public"]["Enums"]["metric_kind"]
+          max_value: number
+          min_value: number
+          rbs_id: string | null
+          samples: number
+        }
+        Insert: {
+          avg_value: number
+          bucket_at: string
+          concentrador_id?: string | null
+          interface_id?: string | null
+          kind: Database["public"]["Enums"]["metric_kind"]
+          max_value: number
+          min_value: number
+          rbs_id?: string | null
+          samples: number
+        }
+        Update: {
+          avg_value?: number
+          bucket_at?: string
+          concentrador_id?: string | null
+          interface_id?: string | null
+          kind?: Database["public"]["Enums"]["metric_kind"]
+          max_value?: number
+          min_value?: number
+          rbs_id?: string | null
+          samples?: number
+        }
+        Relationships: []
+      }
+      metric_hourly: {
+        Row: {
+          avg_value: number
+          bucket_at: string
+          concentrador_id: string | null
+          interface_id: string | null
+          kind: Database["public"]["Enums"]["metric_kind"]
+          max_value: number
+          min_value: number
+          rbs_id: string | null
+          samples: number
+        }
+        Insert: {
+          avg_value: number
+          bucket_at: string
+          concentrador_id?: string | null
+          interface_id?: string | null
+          kind: Database["public"]["Enums"]["metric_kind"]
+          max_value: number
+          min_value: number
+          rbs_id?: string | null
+          samples: number
+        }
+        Update: {
+          avg_value?: number
+          bucket_at?: string
+          concentrador_id?: string | null
+          interface_id?: string | null
+          kind?: Database["public"]["Enums"]["metric_kind"]
+          max_value?: number
+          min_value?: number
+          rbs_id?: string | null
+          samples?: number
+        }
+        Relationships: []
+      }
       metric_samples: {
         Row: {
           collected_at: string
@@ -2294,6 +2390,7 @@ export type Database = {
           samples: number
         }[]
       }
+      metric_maintenance: { Args: { _max_hours?: number }; Returns: Json }
       metric_series: {
         Args: {
           _concentrador: string
