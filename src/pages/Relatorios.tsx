@@ -56,7 +56,7 @@ export default function Relatorios() {
 
   const settingsQ = useQuery({
     queryKey: ["notif-settings"], enabled: isAdmin,
-    queryFn: async () => (await supabase.from("notification_settings").select("*").limit(1).maybeSingle()).data,
+    queryFn: async () => (await supabase.from("notification_settings").select("id,organization_id,enabled,api_url,instance,phones,daily_report_enabled,daily_report_hour,daily_report_minute,last_daily_sent_on,report_days,evening_report_enabled,evening_report_hour,last_evening_sent_on,quiet_enabled,quiet_start_hour,quiet_end_hour,created_at,updated_at").limit(1).maybeSingle()).data,
   });
   const rulesQ = useQuery({
     queryKey: ["alert-rules"],
