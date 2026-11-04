@@ -82,7 +82,7 @@ export default function Relatorios() {
   useEffect(() => {
     const d = settingsQ.data;
     if (d) setS({
-      id: d.id, enabled: d.enabled, api_url: d.api_url ?? "", api_token: d.api_token ?? "", instance: d.instance ?? "", phones: d.phones ?? [],
+      id: d.id, enabled: d.enabled, api_url: d.api_url ?? "", api_token: "", instance: d.instance ?? "", phones: d.phones ?? [],
       daily_report_enabled: d.daily_report_enabled, daily_report_hour: d.daily_report_hour, daily_report_minute: d.daily_report_minute ?? 0,
       report_days: d.report_days ?? empty.report_days, evening_report_enabled: d.evening_report_enabled ?? false, evening_report_hour: d.evening_report_hour ?? 18,
       quiet_enabled: d.quiet_enabled ?? false, quiet_start_hour: d.quiet_start_hour ?? 23, quiet_end_hour: d.quiet_end_hour ?? 6,
@@ -92,7 +92,8 @@ export default function Relatorios() {
   const save = async () => {
     setBusy(true);
     const { id, ...rest } = s;
-    const row = { ...rest, api_url: s.api_url.trim(), api_token: s.api_token.trim(), instance: s.instance.trim() };
+    const { api_token, ...restNoToken } = rest;
+    const row = { ...restNoToken, api_url: s.api_url.trim(), instance: s.instance.trim(), ...(api_token.trim() ? { api_token: api_token.trim() } : {}) };
     const { error } = id
       ? await supabase.from("notification_settings").update(row).eq("id", id)
       : await supabase.from("notification_settings").insert(row);
