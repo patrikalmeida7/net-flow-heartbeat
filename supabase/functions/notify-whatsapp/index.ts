@@ -191,7 +191,10 @@ Deno.serve(async (req) => {
     if (!["run", "test", "daily", "daily_history_preview", "wa_status", "wa_connect", "wa_logout", "report_preview", "report_test", "health_preview", "health_send", "simulate"].includes(action)) return json({ error: "ação inválida" }, 400);
 
     if (action === "run") {
-      if (!await secretMatches(req.headers.get("x-cron-secret"), Deno.env.get("NOTIFY_CRON_SECRET"))) return json({ error: "cron não autorizado" }, 401);
+      const cs = req.headers.get("x-cron-secret");
+      const okEnv = await secretMatches(cs, Deno.env.get("NOTIFY_CRON_SECRET"));
+      const okVault = okEnv || (!!cs && (await sb.rpc("check_notify_cron_secret", { _s: cs })).data === true);
+      if (!okVault) return json({ error: "cron não autorizado" }, 401);
     } else {
       const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
       const { data: u } = await sb.auth.getUser(token);

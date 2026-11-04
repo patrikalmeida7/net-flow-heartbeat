@@ -934,6 +934,21 @@ export type Database = {
           },
         ]
       }
+      internal_job_secrets: {
+        Row: {
+          name: string
+          value: string
+        }
+        Insert: {
+          name: string
+          value: string
+        }
+        Update: {
+          name?: string
+          value?: string
+        }
+        Relationships: []
+      }
       job_locks: {
         Row: {
           holder: string | null
@@ -2313,6 +2328,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      check_notify_cron_secret: { Args: { _s: string }; Returns: boolean }
       claim_api_collection_slot: { Args: { _agent: string }; Returns: boolean }
       client_drop_stats: {
         Args: { _concentrador: string; _username: string }
