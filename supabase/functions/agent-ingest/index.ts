@@ -4,6 +4,7 @@
 
 import { z } from "npm:zod@3";
 import { sameOrganization } from "../_shared/security.ts";
+import { tooLarge, readJsonLimited, rateLimited } from "../_shared/ingest-guard.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -78,8 +79,12 @@ Deno.serve(async (req) => {
     }
     if (!authorized) return json({ error: "Unauthorized" }, 401);
     if (!agentId) return json({ error: "Unauthorized" }, 401);
+    if (tooLarge(req, 8_000_000)) return json({ error: "Payload too large" }, 413);
+    if (rateLimited("ai:" + agentId, 120)) return json({ error: "Too many requests" }, 429);
+    let rawBody: unknown;
+    try { rawBody = await readJsonLimited(req, 8_000_000); } catch (e) { return json({ error: (e as Error).message === "payload_too_large" ? "Payload too large" : "Invalid JSON" }, (e as Error).message === "payload_too_large" ? 413 : 400); }
 
-    const parsed=z.object({concentrador:z.object({host:z.string().min(1).max(255),status:z.enum(["online","warning","offline","unknown"]).optional()}).passthrough(),sessions:z.array(z.object({username:z.string().min(1).max(255),online:z.boolean(),bytes_in:z.number().finite().nonnegative().nullable().optional(),bytes_out:z.number().finite().nonnegative().nullable().optional()}).passthrough()).max(100000),concentrador_id:z.string().uuid().optional(),source:z.string().optional(),error:z.string().max(1000).optional(),collected_at:z.string().datetime().optional()}).safeParse(await req.json());
+    const parsed=z.object({concentrador:z.object({host:z.string().min(1).max(255),status:z.enum(["online","warning","offline","unknown"]).optional()}).passthrough(),sessions:z.array(z.object({username:z.string().min(1).max(255),online:z.boolean(),bytes_in:z.number().finite().nonnegative().nullable().optional(),bytes_out:z.number().finite().nonnegative().nullable().optional()}).passthrough()).max(100000),concentrador_id:z.string().uuid().optional(),source:z.string().optional(),error:z.string().max(1000).optional(),collected_at:z.string().datetime().optional()}).safeParse(rawBody);
     if(!parsed.success) return json({error:parsed.error.flatten()},400);
     const body = parsed.data as IngestPayload;
     if (!body?.concentrador?.host) {

@@ -45,11 +45,15 @@ Deno.serve(async (req) => {
       await sb.from("agents").update({ last_seen_at: new Date().toISOString() }).eq("id", agent.id);
       const { data: snmpRows, error: snErr } = await sb.from("snmp_credentials").select("*,concentradores(id,nome,host,organization_id),rbs(id,nome,host,organization_id)").eq("agent_id",agent.id).eq("enabled",true);
       if (snErr) throw snErr;
-      const snmp_targets = (snmpRows ?? []).flatMap((s: any) => {
+      const snmp_targets = [];
+      for (const s of (snmpRows ?? []) as any[]) {
         const target = s.concentradores ?? s.rbs;
-        if (!target?.host || target.organization_id !== agent.organization_id || s.organization_id !== agent.organization_id) return [];
-        return [{target_id: target.id, kind: s.concentrador_id ? "concentrador" : "rbs", host: target.host, nome: target.nome, snmp: {enabled:true,version:s.version,port:s.port,community:s.community,username:s.username,auth_proto:s.auth_proto,auth_password:s.auth_password,priv_proto:s.priv_proto,priv_password:s.priv_password,timeout_ms:s.timeout_ms,retries:s.retries}}];
-      });
+        if (!target?.host || target.organization_id !== agent.organization_id || s.organization_id !== agent.organization_id) continue;
+        const { data: sec, error: secErr } = await sb.rpc("get_snmp_secrets", { _id: s.id });
+        if (secErr) throw secErr;
+        Object.assign(s, sec ?? {});
+        snmp_targets.push(... [{target_id: target.id, kind: s.concentrador_id ? "concentrador" : "rbs", host: target.host, nome: target.nome, snmp: {enabled:true,version:s.version,port:s.port,community:s.community,username:s.username,auth_proto:s.auth_proto,auth_password:s.auth_password,priv_proto:s.priv_proto,priv_password:s.priv_password,timeout_ms:s.timeout_ms,retries:s.retries}}]);
+      }
       return json({ ok: true, devices, snmp_targets });
     }
 

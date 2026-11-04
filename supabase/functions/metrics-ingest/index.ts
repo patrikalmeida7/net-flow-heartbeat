@@ -6,6 +6,7 @@
 // - Insere amostras em metric_samples (raw, retenção 7 dias).
 import { z } from "npm:zod@3";
 import { sameOrganization } from "../_shared/security.ts";
+import { tooLarge, readJsonLimited, rateLimited } from "../_shared/ingest-guard.ts";
 import { corsHeaders as sdkCorsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
@@ -90,6 +91,10 @@ Deno.serve(async (req) => {
     });
   }
 
+  const jh = { ...corsHeaders, "Content-Type": "application/json" };
+  if (tooLarge(req, 8_000_000)) return new Response(JSON.stringify({ error: "Payload too large" }), { status: 413, headers: jh });
+  if (rateLimited("mi:" + agentId, 120)) return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429, headers: jh });
+
   const supabase = createClient(
     serviceUrl,
     serviceKey,
@@ -98,7 +103,7 @@ Deno.serve(async (req) => {
 
   let body: IngestPayload;
   try {
-    body = await req.json();
+    body = await readJsonLimited(req, 8_000_000) as IngestPayload;
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), {
       status: 400,

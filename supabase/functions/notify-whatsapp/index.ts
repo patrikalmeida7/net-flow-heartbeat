@@ -206,6 +206,7 @@ Deno.serve(async (req) => {
       s = ins.data;
     }
     if (!s) return json({ ok: true, skipped: "sem configuração" });
+    { const { data: tok } = await sb.rpc("get_notification_api_token", { _id: s.id }); s = { ...s, api_token: tok ?? null }; }
     // Servidor WhatsApp nativo da plataforma (Evolution API): usado quando o cliente não tem servidor próprio.
     s = {
       ...s,

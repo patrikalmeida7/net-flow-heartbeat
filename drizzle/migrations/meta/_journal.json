@@ -190,6 +190,13 @@
       "when": 1793829612479,
       "tag": "0026_metric_rollups_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793832548019,
+      "tag": "0027_security_hardening_v2",
+      "breakpoints": true
     }
   ]
 }
