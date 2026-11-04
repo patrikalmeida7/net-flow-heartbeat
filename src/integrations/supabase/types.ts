@@ -1254,6 +1254,7 @@ export type Database = {
       notification_settings: {
         Row: {
           api_token: string | null
+          api_token_encrypted: string | null
           api_url: string | null
           created_at: string
           daily_report_enabled: boolean
@@ -1276,6 +1277,7 @@ export type Database = {
         }
         Insert: {
           api_token?: string | null
+          api_token_encrypted?: string | null
           api_url?: string | null
           created_at?: string
           daily_report_enabled?: boolean
@@ -1298,6 +1300,7 @@ export type Database = {
         }
         Update: {
           api_token?: string | null
+          api_token_encrypted?: string | null
           api_url?: string | null
           created_at?: string
           daily_report_enabled?: boolean
@@ -1564,8 +1567,10 @@ export type Database = {
         Row: {
           agent_id: string | null
           auth_password: string | null
+          auth_password_encrypted: string | null
           auth_proto: Database["public"]["Enums"]["snmp_auth_proto"]
           community: string | null
+          community_encrypted: string | null
           concentrador_id: string | null
           created_at: string
           enabled: boolean
@@ -1576,6 +1581,7 @@ export type Database = {
           poll_interval_seconds: number
           port: number
           priv_password: string | null
+          priv_password_encrypted: string | null
           priv_proto: Database["public"]["Enums"]["snmp_priv_proto"]
           rbs_id: string | null
           retries: number
@@ -1587,8 +1593,10 @@ export type Database = {
         Insert: {
           agent_id?: string | null
           auth_password?: string | null
+          auth_password_encrypted?: string | null
           auth_proto?: Database["public"]["Enums"]["snmp_auth_proto"]
           community?: string | null
+          community_encrypted?: string | null
           concentrador_id?: string | null
           created_at?: string
           enabled?: boolean
@@ -1599,6 +1607,7 @@ export type Database = {
           poll_interval_seconds?: number
           port?: number
           priv_password?: string | null
+          priv_password_encrypted?: string | null
           priv_proto?: Database["public"]["Enums"]["snmp_priv_proto"]
           rbs_id?: string | null
           retries?: number
@@ -1610,8 +1619,10 @@ export type Database = {
         Update: {
           agent_id?: string | null
           auth_password?: string | null
+          auth_password_encrypted?: string | null
           auth_proto?: Database["public"]["Enums"]["snmp_auth_proto"]
           community?: string | null
+          community_encrypted?: string | null
           concentrador_id?: string | null
           created_at?: string
           enabled?: boolean
@@ -1622,6 +1633,7 @@ export type Database = {
           poll_interval_seconds?: number
           port?: number
           priv_password?: string | null
+          priv_password_encrypted?: string | null
           priv_proto?: Database["public"]["Enums"]["snmp_priv_proto"]
           rbs_id?: string | null
           retries?: number
@@ -2363,6 +2375,8 @@ export type Database = {
         Returns: string
       }
       get_mikrotik_api_password: { Args: { _id: string }; Returns: string }
+      get_notification_api_token: { Args: { _id: string }; Returns: string }
+      get_snmp_secrets: { Args: { _id: string }; Returns: Json }
       get_vpn_client_config: { Args: { _client_id: string }; Returns: string }
       get_vpn_secret: {
         Args: { _connection_id: string; _field: string }
