@@ -183,6 +183,13 @@
       "when": 1793240232742,
       "tag": "0025_credential_permissions_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793829612479,
+      "tag": "0026_metric_rollups_retention",
+      "breakpoints": true
     }
   ]
 }
