@@ -204,6 +204,13 @@
       "when": 1793835711607,
       "tag": "0028_notify_cron_private_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794336164296,
+      "tag": "0029_db_compaction_48h_retention",
+      "breakpoints": true
     }
   ]
 }
